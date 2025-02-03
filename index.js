@@ -8,6 +8,24 @@ const LocalStrategy = require('passport-local').Strategy;
 const bcrypt = require('bcrypt');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
+const { initializeApp } = require("firebase/app");
+const { getStorage } = require("firebase/storage");
+
+const firebaseConfig = 
+{
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    measurementId: process.env.FIREBASE_MEASUREMENT_ID
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const storage = getStorage(firebaseApp);
+const { ref, uploadBytes, getDownloadURL } = require("firebase/storage");
+const multer = require("multer");
 
 // Initialize express app
 const app = express();
@@ -26,6 +44,10 @@ app.use(session({
 }));
 app.use(passport.initialize());
 app.use(passport.session());
+
+
+// Multer setup: Store file in memory before uploading
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Connection URI
 const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
@@ -133,6 +155,39 @@ app.post('/logout', (req, res) => {
         res.json({ message: 'Logged out successfully' });
     });
 });
+
+app.post("/uploadProfilePicture", upload.single("image"), async (req, res) => 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+    
+        if (!req.file) 
+        {
+            return res.status(400).json({ message: "No file uploaded" });
+        }
+    
+        try 
+        {
+            const userId = req.isAuthenticated() ? req.user._id.toString() : "testUserId";
+            const storageRef = ref(storage, `profile_pictures/${userId}.jpg`);
+    
+            // Upload file to Firebase Storage
+            await uploadBytes(storageRef, req.file.buffer);
+    
+            // Get the image's public URL
+            const imageUrl = await getDownloadURL(storageRef);
+    
+            res.json({ imageUrl });
+        } 
+        catch (error) 
+        {
+            console.error("Error uploading file:", error);
+            res.status(500).json({ message: "Upload failed", error: error.message || error });
+        }
+    });
+    
 
 // Route to check authentication status
 app.get('/authStatus', (req, res) => {
