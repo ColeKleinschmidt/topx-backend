@@ -90,12 +90,10 @@ passport.use(new LocalStrategy({ usernameField: 'email' }, async (email, passwor
 
 // Serialize and Deserialize user
 passport.serializeUser((user, done) => {
-    console.log('trying to make it work');
     done(null, user._id);
 });
 
 passport.deserializeUser(async (id, done) => {
-    console.log('trying to make it work');
     try {
         await client.connect();
         const db = client.db('users');
@@ -147,7 +145,7 @@ app.post('/createAccount', async (req, res) => {
 
 // Login route
 app.post('/login', passport.authenticate('local'), (req, res) => {
-    res.json({ message: 'Logged in successfully', user: req.user });                                                                                                                    
+    res.json({ message: 'success', user: req.user });                                                                                                                    
 });
 
 // Logout route
@@ -189,6 +187,19 @@ app.post("/uploadProfilePicture", upload.single("image"), async (req, res) =>
             res.status(500).json({ message: "Upload failed", error: error.message || error });
         }
     });
+
+// Route to get all users in the db
+app.get('/getAllUsers', async (req, res) => {
+    try {
+        await client.connect();
+        const db = client.db('users');
+        const users = db.collection('profiles');
+        const allUsers = await users.find().toArray();
+        res.json({ message: "success", users: allUsers });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
     
 
 // Route to check authentication status
