@@ -45,4 +45,4 @@ async function getWikiData(articleTitle)
     }
 }
 
-getWikiData('Bean');
+getWikiData('Phone');
