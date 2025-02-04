@@ -6,7 +6,7 @@ const session = require('express-session');
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const bcrypt = require('bcrypt');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId, Timestamp } = require('mongodb');
 require('dotenv').config();
 
 // Initialize express app
@@ -14,7 +14,7 @@ const app = express();
 
 // Use middlewares
 app.use(cors({
-    origin: 'http://localhost:5173', // Adjust this based on your frontend
+    origin: 'http://127.0.0.1:5500', // Adjust this based on your frontend
     credentials: true
 }));
 app.use(bodyParser.json());
@@ -68,10 +68,12 @@ passport.use(new LocalStrategy({ usernameField: 'email' }, async (email, passwor
 
 // Serialize and Deserialize user
 passport.serializeUser((user, done) => {
+    console.log('trying to make it work');
     done(null, user._id);
 });
 
 passport.deserializeUser(async (id, done) => {
+    console.log('trying to make it work');
     try {
         await client.connect();
         const db = client.db('users');
@@ -132,6 +134,18 @@ app.post('/logout', (req, res) => {
         if (err) return res.status(500).json({ message: 'Logout failed', error: err });
         res.json({ message: 'Logged out successfully' });
     });
+});
+
+// Route to send a friend request
+app.post('/logout', (req, res) => {
+    const { friendUserID } = req.body;
+
+    const newFriendRequest = {
+        type: 'friend request',
+        sendingUser: req.user._id,
+        receivingUser: friendUserID,
+        timestamp: new Date(),
+    }
 });
 
 // Route to check authentication status
