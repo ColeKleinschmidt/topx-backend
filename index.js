@@ -37,7 +37,7 @@ const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mo
 // Use middlewares
 app.use(cors({
     origin: 'http://127.0.0.1:5500', // Adjust this based on your frontend
-    credentials: true
+    credentials: true,
 }));
 app.use(bodyParser.json());
 app.use(session({
@@ -45,7 +45,9 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({ mongoUrl: uri }),
-    cookie: { secure: false } // Set to true if using HTTPS
+    cookie: { secure: false,
+            sameSite: "lax",
+    } // Set to true if using HTTPS
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -150,8 +152,11 @@ app.post('/createAccount', async (req, res) => {
 
 // Login route
 app.post('/login', passport.authenticate('local'), (req, res) => {
-    console.log("Session after login:", req.session);
-    res.json({ message: 'success', user: req.user });                                                                                                                    
+    const { _id, email, username, iconUrl } = req.user;
+    res.json({
+        message: 'success',
+        user: { _id, email, username, iconUrl }
+    });
 });
 
 // Logout route
@@ -164,8 +169,13 @@ app.get('/logout', (req, res) => {
 
 app.post("/uploadProfilePicture", upload.single("image"), async (req, res) => 
     {
+        console.log("📤 Checking authentication for route: /uploadProfilePicture");
+        console.log("Session:", req.session);
+        console.log("User:", req.user);
+    
         if (!req.isAuthenticated()) 
         {
+            console.error("❌ User is not authenticated.");
             return res.status(401).json({ message: "Unauthorized" });
         }
     
@@ -176,7 +186,7 @@ app.post("/uploadProfilePicture", upload.single("image"), async (req, res) =>
     
         try 
         {
-            const userId = req.isAuthenticated() ? req.user._id.toString() : "testUserId";
+            const userId = req.user._id.toString();
             const storageRef = ref(storage, `profile_pictures/${userId}.jpg`);
     
             // Upload file to Firebase Storage
@@ -185,15 +195,27 @@ app.post("/uploadProfilePicture", upload.single("image"), async (req, res) =>
             // Get the image's public URL
             const imageUrl = await getDownloadURL(storageRef);
     
+            // Update the user's profilePicture in the database
+            await client.connect();
+            const db = client.db('users');
+            const users = db.collection('profiles');
+    
+            await users.updateOne(
+                { _id: new ObjectId(userId) },
+                { $set: { profilePicture: imageUrl } }
+            );
+    
+            console.log("✅ Profile picture updated in database:", imageUrl);
+    
             res.json({ imageUrl });
         } 
         catch (error) 
         {
-            console.error("Error uploading file:", error);
+            console.error("❌ Error uploading file:", error);
             res.status(500).json({ message: "Upload failed", error: error.message || error });
         }
     });
-
+    
 // Route to get all users in the db
 app.get('/getAllUsers', async (req, res) => {
     try {
@@ -209,14 +231,27 @@ app.get('/getAllUsers', async (req, res) => {
     
 
 // Route to check authentication status
-app.get('/authStatus', (req, res) => {
-    console.log("Session during authStatus:", req.session);
-    if (req.isAuthenticated()) {
-        res.json({ authenticated: true, user: req.user });
-    } else {
-        res.json({ authenticated: false });
-    }
-});
+app.get('/authStatus', (req, res) => 
+    {
+        console.log("Session during authStatus:", req.session);
+        if (req.isAuthenticated()) 
+        {
+            const user = req.user;
+            res.json({
+                authenticated: true,
+                user: {
+                    _id: user._id,
+                    email: user.email,
+                    username: user.username,
+                    profilePicture: user.profilePicture || 'assets/images/User Icon.png'
+                }
+            });
+        } 
+        else 
+        {
+            res.json({ authenticated: false });
+        }
+    });
 
 app.get("/", async (req, res) => {
     res.send({ serverStatus: "running" });
