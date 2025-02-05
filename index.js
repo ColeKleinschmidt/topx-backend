@@ -10,6 +10,7 @@ const { MongoClient, ServerApiVersion, ObjectId, Timestamp } = require('mongodb'
 require('dotenv').config();
 const { initializeApp } = require("firebase/app");
 const { getStorage } = require("firebase/storage");
+const MongoStore = require('connect-mongo');
 
 const firebaseConfig = 
 {
@@ -30,6 +31,9 @@ const multer = require("multer");
 // Initialize express app
 const app = express();
 
+// Connection URI
+const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
+
 // Use middlewares
 app.use(cors({
     origin: 'http://127.0.0.1:5500', // Adjust this based on your frontend
@@ -40,6 +44,7 @@ app.use(session({
     secret: process.env.SESSION_SECRET || 'supersecret',
     resave: false,
     saveUninitialized: false,
+    store: MongoStore.create({ mongoUrl: uri }),
     cookie: { secure: false } // Set to true if using HTTPS
 }));
 app.use(passport.initialize());
@@ -48,9 +53,6 @@ app.use(passport.session());
 
 // Multer setup: Store file in memory before uploading
 const upload = multer({ storage: multer.memoryStorage() });
-
-// Connection URI
-const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
 
 // Create a MongoClient
 const client = new MongoClient(uri, {
@@ -95,10 +97,13 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async (id, done) => {
     try {
+        console.log("deserializing user with id: " + id);
         await client.connect();
         const db = client.db('users');
         const users = db.collection('profiles');
         const user = await users.findOne({ _id: new ObjectId(id) });
+        
+        if (!user) return done(null, false);
         done(null, user);
     } catch (error) {
         done(error);
@@ -145,11 +150,12 @@ app.post('/createAccount', async (req, res) => {
 
 // Login route
 app.post('/login', passport.authenticate('local'), (req, res) => {
+    console.log("Session after login:", req.session);
     res.json({ message: 'success', user: req.user });                                                                                                                    
 });
 
 // Logout route
-app.post('/logout', (req, res) => {
+app.get('/logout', (req, res) => {
     req.logout(err => {
         if (err) return res.status(500).json({ message: 'Logout failed', error: err });
         res.json({ message: 'Logged out successfully' });
@@ -204,6 +210,7 @@ app.get('/getAllUsers', async (req, res) => {
 
 // Route to check authentication status
 app.get('/authStatus', (req, res) => {
+    console.log("Session during authStatus:", req.session);
     if (req.isAuthenticated()) {
         res.json({ authenticated: true, user: req.user });
     } else {
