@@ -103,7 +103,7 @@ passport.deserializeUser(async (id, done) => {
         await client.connect();
         const db = client.db('users');
         const users = db.collection('profiles');
-        const user = await users.findOne({ _id: new ObjectId(id) });
+        const user = await users.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
         
         if (!user) return done(null, false);
         done(null, user);
@@ -138,7 +138,9 @@ app.post('/createAccount', async (req, res) => {
             password: hashedPassword, 
             username,
             createdTimestamp: new Date(),
-            lastLoginTimestamp: new Date(), 
+            lastLoginTimestamp: new Date(),
+            friends: [],
+            profilePicture: ""
         };
         console.log("inserting new user into database: ");
         console.log(newUser);
@@ -201,7 +203,7 @@ app.post("/uploadProfilePicture", upload.single("image"), async (req, res) =>
             const users = db.collection('profiles');
     
             await users.updateOne(
-                { _id: new ObjectId(userId) },
+                { _id: ObjectId.createFromHexString(userId.toString()) },
                 { $set: { profilePicture: imageUrl } }
             );
     
@@ -219,12 +221,92 @@ app.post("/uploadProfilePicture", upload.single("image"), async (req, res) =>
 // Route to get all users in the db
 app.get('/getAllUsers', async (req, res) => {
     try {
-        await client.connect();
-        const db = client.db('users');
-        const users = db.collection('profiles');
-        const allUsers = await users.find().toArray();
-        res.json({ message: "success", users: allUsers });
+        if (req.isAuthenticated()) {
+            await client.connect();
+            const db = client.db('users');
+            const users = db.collection('profiles');
+            const allUsers = await users.find().toArray();
+            res.json({ message: "success", users: allUsers });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
     } catch (error) {
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to send friend request
+app.post('/sendFriendRequest', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection('notifications');
+
+            //check existing friend requests
+            const existingRequest = await notifications.find({ $or: [ { sender: req.user._id }, { receiver: req.user._id } ] }).toArray();
+
+            if (existingRequest.length === 0) {
+                let friendRequest = {
+                    sender: ObjectId.createFromHexString(req.user._id.toString()),
+                    receiver: ObjectId.createFromHexString(req.body.receiver),
+                    createdTimestamp: new Date(),
+                    type: 'friendRequest'
+                }
+                const result = await notifications.insertOne(friendRequest);
+                friendRequest._id = result.insertedId;
+                res.json({ message: "success", friendRequest: friendRequest });
+            } else {
+                console.log(existingRequest);
+                res.json({ message: "friend request already exists" });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to accept friend request
+app.post('/acceptFriendRequest', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection('notifications');
+            const users = db.collection('users');
+
+            //check if request exists
+            const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.requestId.toString()) });
+
+            if (existingRequest === null || existingRequest === undefined) {
+                res.json({ message: "friend request doesn't exist" });
+            } else if ( req.user._id.toString() !== existingRequest.receiver.toString() ) {
+                res.json({ message: "user isn't the intended recipient" });
+            } else {
+                await users.updateOne({ _id: existingRequest.sender }, { $push: { friends: ObjectId.createFromHexString(req.user._id.toString()) } });
+                await users.updateOne({ _id: ObjectId.createFromHexString(req.user._id.toString()) }, { $push: { friends: existingRequest.sender } });
+                await notifications.deleteOne({ _id: existingRequest._id });
+
+                let updatedFriendsList = req.user.friends;
+                updatedFriendsList.push(existingRequest.sender);
+
+                res.json({ message: "success", updatedFriendsList: updatedFriendsList });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
         res.status(500).json({ message: 'Server error', error });
     }
 });
