@@ -11,10 +11,14 @@ require('dotenv').config();
 const { initializeApp } = require("firebase/app");
 const { getStorage } = require("firebase/storage");
 const MongoStore = require('connect-mongo');
+const fetch = globalThis.fetch;
+
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const CX = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
 const firebaseConfig = 
 {
-    apiKey: process.env.FIREBASE_API_KEY,
+    apiKey: process.env.GOOGLE_API_KEY,
     authDomain: process.env.FIREBASE_AUTH_DOMAIN,
     projectId: process.env.FIREBASE_PROJECT_ID,
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
@@ -334,6 +338,39 @@ app.get('/authStatus', (req, res) =>
             res.json({ authenticated: false });
         }
     });
+
+app.get('/scrape-images', async (req, res) => {
+    const query = req.query.q;
+    if (!query) {
+        console.error("Missing search query");
+        return res.status(400).json({ error: 'Missing search query' });
+    }
+
+    try {
+        const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
+            query
+        )}&cx=${CX}&searchType=image&num=1&key=${GOOGLE_API_KEY}`; // Limit to 1 result
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("Error from Google API:", data.error);
+            return res.status(500).json({ error: data.error.message });
+        }
+
+        if (data.items && data.items.length > 0) {
+            const imageUrl = data.items[0].link; // Get the first image
+            res.json({ image: imageUrl });
+        } else {
+            console.error("No images found:", data);
+            res.status(404).json({ error: 'No images found' });
+        }
+    } catch (error) {
+        console.error("Error in /scrape-images:", error);
+        res.status(500).json({ error: 'Failed to fetch image' });
+    }
+});
 
 app.get("/", async (req, res) => {
     res.send({ serverStatus: "running" });
