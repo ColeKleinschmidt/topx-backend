@@ -394,7 +394,7 @@ app.post('/removeFriend', async (req, res) => {
 });
 
 // Route to decline friend request
-app.get('/findItems', async (req, res) => {
+app.post('/findItems', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
             //connect to collection
@@ -402,10 +402,13 @@ app.get('/findItems', async (req, res) => {
             const db = client.db('lists');
             const items = db.collection('items');
 
-            const exisingItems = await items.find({ title: { $regex: req.body.title.trim().toLowerCase() } }).toArray();
+            console.log('finding items');
 
-            if (exisingItems.length > 0) {
-                res.json({ message: "success", items: exisingItems });
+            const existingItems = await items.find({ title: { $regex: req.body.title.trim().toLowerCase() } }).toArray();
+
+            if (existingItems.length > 0) {
+                console.log(existingItems);
+                res.json({ message: "success", items: existingItems });
             }else {
                 const getImage = await scrapeImages(req.body.title);
                 let imageLink;
@@ -418,6 +421,7 @@ app.get('/findItems', async (req, res) => {
                     title: req.body.title,
                     image: imageLink,
                 }
+                console.log(newItem);
                 res.json({ message: "success", items: [newItem] });
             }
 
