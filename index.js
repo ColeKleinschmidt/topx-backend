@@ -16,6 +16,8 @@ const fetch = globalThis.fetch;
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const CX = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
+const IMAGE_NOT_FOUND = "https://upload.wikimedia.org/wikipedia/commons/f/fc/No_picture_available.png";
+
 const firebaseConfig = 
 {
     apiKey: process.env.GOOGLE_API_KEY,
@@ -115,6 +117,16 @@ passport.deserializeUser(async (id, done) => {
         done(error);
     }
 });
+
+const scrapeImages = async (query) => {
+    const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
+        query
+    )}&cx=${CX}&searchType=image&num=1&key=${GOOGLE_API_KEY}`; // Limit to 1 result
+
+    const response = await fetch(url);
+    const data = await response.json();
+    return data;
+}
 
 // Route to create an account
 app.post('/createAccount', async (req, res) => {
@@ -380,6 +392,64 @@ app.post('/removeFriend', async (req, res) => {
         res.status(500).json({ message: 'Server error', error });
     }
 });
+
+// Route to decline friend request
+app.get('/findItems', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const items = db.collection('items');
+
+            const exisingItems = await items.find({ title: { $regex: req.body.title.trim().toLowerCase() } }).toArray();
+
+            if (exisingItems.length > 0) {
+                res.json({ message: "success", items: exisingItems });
+            }else {
+                const getImage = await scrapeImages(req.body.title);
+                let imageLink;
+                if (getImage.items && getImage.items.length > 0) {
+                    imageLink = getImage.items[0].link;
+                }else {
+                    imageLink = IMAGE_NOT_FOUND;
+                }
+                const newItem = {
+                    title: req.body.title,
+                    image: imageLink,
+                }
+                res.json({ message: "success", items: [newItem] });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to create a list
+app.post('/createList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const items = db.collection('items');
+
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
     
 
 // Route to check authentication status
@@ -413,12 +483,7 @@ app.get('/scrape-images', async (req, res) => {
     }
 
     try {
-        const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
-            query
-        )}&cx=${CX}&searchType=image&num=1&key=${GOOGLE_API_KEY}`; // Limit to 1 result
-
-        const response = await fetch(url);
-        const data = await response.json();
+        const data = await scrapeImages(query);
 
         if (data.error) {
             console.error("Error from Google API:", data.error);
