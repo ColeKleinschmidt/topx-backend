@@ -285,7 +285,7 @@ app.post('/acceptFriendRequest', async (req, res) => {
             await client.connect();
             const db = client.db('users');
             const notifications = db.collection('notifications');
-            const users = db.collection('users');
+            const users = db.collection('profiles');
 
             //check if request exists
             const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.requestId.toString()) });
@@ -303,6 +303,72 @@ app.post('/acceptFriendRequest', async (req, res) => {
                 updatedFriendsList.push(existingRequest.sender);
 
                 res.json({ message: "success", updatedFriendsList: updatedFriendsList });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to decline friend request
+app.post('/declineFriendRequest', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection('notifications');
+
+            //check if request exists
+            const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.requestId.toString()) });
+
+            if (existingRequest === null || existingRequest === undefined) {
+                res.json({ message: "friend request doesn't exist" });
+            } else if ( req.user._id.toString() !== existingRequest.receiver.toString() ) {
+                res.json({ message: "user isn't the intended recipient" });
+            } else {
+                await notifications.deleteOne({ _id: existingRequest._id });
+                res.json({ message: "success" });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to decline friend request
+app.post('/removeFriend', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const users = db.collection('profiles');
+
+            if (req.user.friends.filter(x => x.toString() === req.body.user.toString()).length > 0) {
+                let updatedFriendsList = req.user.friends.filter(x => x.toString() != req.body.user.toString());
+                await users.updateOne({ _id: req.user._id }, { $set: { friends: updatedFriendsList } });
+
+                const otherUser = await users.findOne({ _id: ObjectId.createFromHexString(req.body.user.toString()) });
+
+                if (otherUser !== null && otherUser !== undefined) {
+                    let otherUsersUpdatedFriendList = otherUser.friends.filter(x => x.toString() !== req.user._id.toString());
+                    await users.updateOne({ _id: otherUser._id }, { $set: { friends: otherUsersUpdatedFriendList } });
+                }
+                res.json({ message: "success", updatedFriendsList: updatedFriendsList });
+
+            } else {
+                res.json({ message: "friend doesn't exist in friend user's friend list" });
             }
 
         } else {
