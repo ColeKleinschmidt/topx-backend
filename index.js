@@ -8,10 +8,11 @@ const LocalStrategy = require('passport-local').Strategy;
 const bcrypt = require('bcrypt');
 const { MongoClient, ServerApiVersion, ObjectId, Timestamp } = require('mongodb');
 require('dotenv').config();
-const { initializeApp } = require("firebase/app");
-const { getStorage } = require("firebase/storage");
+const { initializeApp } = require('firebase/app');
+const { getStorage } = require('firebase/storage');
 const MongoStore = require('connect-mongo');
 const fetch = globalThis.fetch;
+const path = require('path');
 
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
 const CX = process.env.GOOGLE_SEARCH_ENGINE_ID;
@@ -36,6 +37,7 @@ const multer = require("multer");
 
 // Initialize express app
 const app = express();
+const PORT = 8080;
 
 // Connection URI
 const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
@@ -57,7 +59,6 @@ app.use(session({
 }));
 app.use(passport.initialize());
 app.use(passport.session());
-
 
 // Multer setup: Store file in memory before uploading
 const upload = multer({ storage: multer.memoryStorage() });
@@ -507,10 +508,18 @@ app.get('/scrape-images', async (req, res) => {
     }
 });
 
-app.get("/", async (req, res) => {
-    res.send({ serverStatus: "running" });
+const FRONTEND_PATH = path.join(__dirname, '../../TopX Frontend/topx-frontend');
+const INDEX_PATH = path.join(FRONTEND_PATH, 'index.html');
+
+console.log('Serving frontend from:', FRONTEND_PATH);
+
+app.use(express.static(FRONTEND_PATH));
+
+app.get('*', (req, res) => {
+    console.log(`Serving SPA route for: ${req.originalUrl}`);
+    res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
 });
 
-app.listen(8080, () => {
-    console.log("Server is running on port 8080");
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
