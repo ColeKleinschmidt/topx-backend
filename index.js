@@ -37,7 +37,6 @@ const multer = require("multer");
 
 // Initialize express app
 const app = express();
-const PORT = 8080;
 
 // Connection URI
 const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
@@ -661,7 +660,7 @@ app.get('/scrape-images', async (req, res) => {
     }
 });
 
-const FRONTEND_PATH = path.join(__dirname, '../../TopX Frontend/topx-frontend');
+const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
 const INDEX_PATH = path.join(FRONTEND_PATH, 'index.html');
 
 console.log('Serving frontend from:', FRONTEND_PATH);
@@ -673,6 +672,6 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+app.listen(process.env.PORT, () => {
+    console.log(`Server is running on port ${process.env.PORT}`);
 });
