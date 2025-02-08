@@ -129,6 +129,38 @@ const scrapeImages = async (query) => {
     return data;
 }
 
+const addItemToDb = async (item, req) => {
+    try {
+        //connect to collection
+        await client.connect();
+        const db = client.db('lists');
+        const items = db.collection('items');
+
+        console.log('adding new item to db');
+        let newItem = item;
+        newItem.createdTimestamp = new Date();
+        newItem.createdBy = req.user._id;
+
+        console.log(newItem);
+        const insertedItem = await items.insertOne(newItem);
+        return insertedItem.insertedId;
+    } catch (error) {
+        console.log('error: ' + error);
+        return "error"
+    }
+}
+
+const getItem = async (id) => {
+    //connect to collection
+    await client.connect();
+    const db = client.db('lists');
+    const items = db.collection('items');
+
+    const item = await items.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
+
+    return item;
+}
+
 // Route to create an account
 app.post('/createAccount', async (req, res) => {
     const { email, password, username } = req.body;
@@ -359,7 +391,7 @@ app.post('/declineFriendRequest', async (req, res) => {
     }
 });
 
-// Route to decline friend request
+// Route to remove a friend
 app.post('/removeFriend', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
@@ -394,7 +426,7 @@ app.post('/removeFriend', async (req, res) => {
     }
 });
 
-// Route to decline friend request
+// Route to fidnd items
 app.post('/findItems', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
@@ -436,16 +468,56 @@ app.post('/findItems', async (req, res) => {
     }
 });
 
+
 // Route to create a list
 app.post('/createList', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
-            //connect to collection
-            await client.connect();
-            const db = client.db('lists');
-            const items = db.collection('items');
+            if (req.body.listItems.length < 10) {
+                console.log("list does not have 10 items");
+                res.json({ message: "list does not have 10 items" });
+                return;
+            } else {
+                //connect to collection
+                await client.connect();
+                const db = client.db('lists');
+                const lists = db.collection('lists');
 
+                let newItemsList = [];
 
+                for (let i = 0; i < req.body.listItems.length; i++) {
+                    const id = req.body.listItems[i]._id;
+                    if (id === null || id === undefined) {
+                        const newItemId = await addItemToDb(req.body.listItems[i], req);
+                        if (newItemId !== "error") {
+                            newItemsList.push(ObjectId.createFromHexString(newItemId.toString()));
+                        }else {
+                            break;
+                        }
+                    }else {
+                        newItemsList.push(ObjectId.createFromHexString(id.toString()));
+                    }
+                }
+
+                if (newItemsList.length !== 10) {
+                    console.log("something went wrong adding one of the items from the list");
+                    res.json({ message: "could not create list, something went wrong adding one of the items from the list to the database." });
+                    return;
+                }else {
+                    let newList = {
+                        userId: req.user._id,
+                        createdTimestamp: new Date(),
+                        title: req.body.title.toLowerCase().trim(),
+                        items: newItemsList
+                    }
+
+                    const newlyInsertedList = await lists.insertOne(newList);
+
+                    newList._id = newlyInsertedList.insertedId;
+                    res.json({ message: "success", list: newList });
+                    return;
+                }
+            }
         } else {
             res.status(401).json({ message: 'Unauthorized' });
         }
@@ -455,6 +527,87 @@ app.post('/createList', async (req, res) => {
         res.status(500).json({ message: 'Server error', error });
     }
 });
+
+// Route to search a list
+app.post('/searchList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const lists = db.collection("lists");
+
+            const returnedLists = lists.find({ title: { $regex: req.body.query } }).toArray();
+
+            res.json({ message: "success", lists: returnedLists });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to return lists with pagination
+app.post('/getLists', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const lists = db.collection("lists");
+
+            // Extract pagination parameters
+            const { page = 1, limit = 10 } = req.body;
+            const skip = (page - 1) * limit;
+
+            // Fetch data with pagination
+            const returnedLists = await lists.aggregate([
+                { $skip: skip },
+                { $limit: limit }
+            ]).toArray();
+
+            let newLists = [];
+
+            for (let i = 0; i < returnedLists.length; i++) {
+                let newList = returnedLists[i];
+                let newItemsList = [];
+                for (let j = 0; j < newList.items.length; j++) {
+                    const item = await getItem(newList.items[j]);
+                    if (item._id !== null && item._id !== undefined) {
+                        newItemsList.push(item);
+                    } else {
+                        console.log("could not get item with id: " + newList.items[j])
+                        break;
+                    }
+                }
+                if (newItemsList.length !== 10) {
+                    console.log("could lot get items for list with Id: " + newList._id);
+                    break;
+                }else {
+                    newList.items = newItemsList;
+                    newLists.push(newList);
+                }
+            }
+
+            if (newLists.length !== returnedLists.length) {
+                console.log("could not retrieve items for lists");
+                res.json({ message: "could not retrieve items for lists" });
+                return;
+            }else {
+                res.json({ message: "success", lists: newLists });
+            }            
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
     
 
 // Route to check authentication status
