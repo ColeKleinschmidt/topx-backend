@@ -111,7 +111,7 @@ passport.deserializeUser(async (id, done) => {
         const users = db.collection('profiles');
         const user = await users.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
         
-        if (!user) return done(null, false);
+        if (!user) return done(null, false, { redirect: '/' });
         done(null, user);
     } catch (error) {
         done(error);
@@ -661,16 +661,36 @@ app.get('/scrape-images', async (req, res) => {
 });
 
 const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
-const INDEX_PATH = path.join(FRONTEND_PATH, 'index.html');
 
 console.log('Serving frontend from:', FRONTEND_PATH);
+console.log(`path: http://127.0.0.1:${process.env.PORT}`);
 
-app.use(express.static(FRONTEND_PATH));
-
-app.get('*', (req, res) => {
-    console.log(`Serving SPA route for: ${req.originalUrl}`);
-    res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+app.get('/', (req, res) => {
+    console.log('working');
+    if (req.isAuthenticated()) {
+        res.redirect('/feed');
+    } else {
+        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+    }
+    
 });
+
+app.use(express.static(FRONTEND_PATH))
+
+app.get('/*', (req, res) => {
+    console.log(`Serving SPA route for: ${req.originalUrl}`);
+    const routes = ['/','/friends','/feed','/createlist','/settings'];
+    if (routes.includes(req.originalUrl) && req.isAuthenticated()) {
+        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+    } else if (!routes.includes(req.originalUrl)){
+        res.sendFile(path.join(FRONTEND_PATH, `${decodeURIComponent(req.originalUrl)}`));
+    }else {
+        res.redirect('/');
+    }
+});
+
+
+
 
 app.listen(process.env.PORT, () => {
     console.log(`Server is running on port ${process.env.PORT}`);
