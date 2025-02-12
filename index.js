@@ -160,6 +160,21 @@ const getItem = async (id) => {
     return item;
 }
 
+const getUser = async (id) => {
+    //connect to collection
+    await client.connect();
+    const db = client.db('users');
+    const profiles = db.collection('profiles');
+
+    const user = await profiles.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
+    if (user !== null && user !== undefined) {
+        return user;
+    } else {
+        console.log("could not find user with id: " + id);
+        return "error";
+    }
+}
+
 // Route to create an account
 app.post('/createAccount', async (req, res) => {
     const { email, password, username } = req.body;
@@ -503,11 +518,16 @@ app.post('/createList', async (req, res) => {
                     res.json({ message: "could not create list, something went wrong adding one of the items from the list to the database." });
                     return;
                 }else {
+                    const r = Math.floor(Math.random() * 156) + 100; // 100-255 for softer colors
+                    const g = Math.floor(Math.random() * 156) + 100;
+                    const b = Math.floor(Math.random() * 156) + 100;
+                    const a = (Math.random() * 0.5 + 0.5).toFixed(2);
                     let newList = {
                         userId: req.user._id,
                         createdTimestamp: new Date(),
                         title: req.body.title.toLowerCase().trim(),
-                        items: newItemsList
+                        items: newItemsList,
+                        backgroundColor: `rgba(${r}, ${g}, ${b}, ${a})`
                     }
 
                     const newlyInsertedList = await lists.insertOne(newList);
@@ -586,8 +606,15 @@ app.post('/getLists', async (req, res) => {
                     console.log("could lot get items for list with Id: " + newList._id);
                     break;
                 }else {
-                    newList.items = newItemsList;
-                    newLists.push(newList);
+                    const user = await getUser(newList.userId);
+                    if (user !== "error") {
+                        newList.items = newItemsList;
+                        newList.user = user;
+                        newLists.push(newList);
+                    }else {
+                        console.log("could not get user");
+                        break;
+                    }
                 }
             }
 
