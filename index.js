@@ -79,6 +79,10 @@ passport.use(new LocalStrategy({ usernameField: 'email' }, async (email, passwor
         const users = db.collection('profiles');
         const user = await users.findOne({ email });
 
+        if (!isValidEmail(email)) {
+            return done(null, false, {message: "invalid email"});
+        }
+
         if (!user) {
             console.log("no user found with email: " + email);
             return done(null, false, { message: 'User not found' });
@@ -117,6 +121,14 @@ passport.deserializeUser(async (id, done) => {
         done(error);
     }
 });
+
+function isValidEmail(email) {
+    if (typeof email !== 'string') {
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
 
 const scrapeImages = async (query) => {
     const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(
@@ -184,15 +196,20 @@ app.post('/createAccount', async (req, res) => {
         return res.status(400).json({ message: 'All fields are required' });
     }
 
+    if (!isValidEmail(email)) {
+        return res.status(400).json({ message: "invalid email" });
+    }
+
     try {
         await client.connect();
         const db = client.db('users');
         const users = db.collection('profiles');
 
-        const existingUser = await users.findOne({ email });
+        const existingUser = await users.findOne({ $or: [{ email: email}, {username: username }] });
         if (existingUser) {
-            console.log("user with email " + email + " already exists");
-            return res.status(400).json({ message: 'Email already in use' });
+            const emailExists = existingUser.email == email ? true : false;
+            console.log(emailExists ? "user with email " + email + " already exists" : "user with username " + username + " already exists");
+            return res.status(400).json({ message: emailExists ? 'Email already in use' : 'Username already in use'});
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -203,13 +220,24 @@ app.post('/createAccount', async (req, res) => {
             createdTimestamp: new Date(),
             lastLoginTimestamp: new Date(),
             friends: [],
-            profilePicture: ""
+            profilePicture: "https://static.vecteezy.com/system/resources/previews/036/280/650/non_2x/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-illustration-vector.jpg"
         };
         console.log("inserting new user into database: ");
         console.log(newUser);
 
         const result = await users.insertOne(newUser);
-        res.status(201).json({ message: 'Account created successfully', userId: result.insertedId });
+        newUser._id = result.insertedId;
+
+        // Manually log the user in
+        req.login(newUser, (err) => {
+            if (err) {
+                return next(err);
+            }
+            res.status(201).json({ 
+                message: 'Account created successfully', 
+                user: { _id: newUser._id, email, username, profilePicture: newUser.profilePicture } 
+            });
+        });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error });
     }
@@ -363,6 +391,29 @@ app.post('/acceptFriendRequest', async (req, res) => {
 
                 res.json({ message: "success", updatedFriendsList: updatedFriendsList });
             }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to get all user notifications
+app.get('/getAllNotifications', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection('notifications');
+
+            const getAllNotifications = await notifications.find({ $or: [{ receiver: ObjectId.createFromHexString(req.user._id.toString()) }, { sender: ObjectId.createFromHexString(req.user._id.toString()) }] }).toArray();
+
+            res.send({ message: "success", notifications: getAllNotifications });
 
         } else {
             res.status(401).json({ message: 'Unauthorized' });
