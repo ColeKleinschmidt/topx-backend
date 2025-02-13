@@ -172,13 +172,19 @@ const getItem = async (id) => {
     return item;
 }
 
-const getUser = async (id) => {
+const getUser = async (idBool, id) => {
     //connect to collection
     await client.connect();
     const db = client.db('users');
     const profiles = db.collection('profiles');
 
-    const user = await profiles.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
+    let user;
+    if (idBool) {
+        user = await profiles.findOne({ _id: ObjectId.createFromHexString(id.toString()) });
+    } else {
+        user = await profiles.findOne({ username: id });
+    }
+
     if (user !== null && user !== undefined) {
         return user;
     } else {
@@ -198,6 +204,10 @@ app.post('/createAccount', async (req, res) => {
 
     if (!isValidEmail(email)) {
         return res.status(400).json({ message: "invalid email" });
+    }
+
+    if (username.includes('-')) {
+        return res.status(400).json({ message: "username cannot contain a '-'" });
     }
 
     try {
@@ -327,6 +337,25 @@ app.get('/getAllUsers', async (req, res) => {
     }
 });
 
+// Route to get users minus the current user
+app.get('/getUsers', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            await client.connect();
+            const db = client.db('users');
+            const users = db.collection('profiles');
+            let allUsers = await users.find().toArray();
+            allUsers = allUsers.filter(x => x._id.toString() !== req.user._id.toString());
+            res.json({ message: "success", users: allUsers });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
 // Route to send friend request
 app.post('/sendFriendRequest', async (req, res) => {
     try {
@@ -427,6 +456,7 @@ app.get('/getAllNotifications', async (req, res) => {
 
 // Route to decline friend request
 app.post('/declineFriendRequest', async (req, res) => {
+    console.log('declining request with id: ' + req.body.requestId);
     try {
         if (req.isAuthenticated()) {
             //connect to collection
@@ -657,7 +687,7 @@ app.post('/getLists', async (req, res) => {
                     console.log("could lot get items for list with Id: " + newList._id);
                     break;
                 }else {
-                    const user = await getUser(newList.userId);
+                    const user = await getUser(true, newList.userId);
                     if (user !== "error") {
                         newList.items = newItemsList;
                         newList.user = user;
@@ -683,6 +713,23 @@ app.post('/getLists', async (req, res) => {
         console.log(error);
         res.status(500).json({ message: 'Server error', error });
     }
+});
+
+// Route to get user with given username
+app.post('/getUser', async (req, res) => {
+    try {
+        const user = await getUser(false, req.body.username);
+        if (user === "error") {
+            console.log("NO USER FOUND");
+            return res.json({ message: "no user found" });
+        }else {
+            console.log("USER FOUND");
+            return res.json({ message: "success", user: user });
+        }
+    } catch (error) {
+        return res.status(400).json({ message: error.toString() });
+    }
+
 });
 
     
@@ -758,11 +805,15 @@ app.use(express.static(FRONTEND_PATH))
 app.get('/*', (req, res) => {
     console.log(`Serving SPA route for: ${req.originalUrl}`);
     const routes = ['/','/friends','/feed','/createlist','/settings'];
-    if (routes.includes(req.originalUrl) && req.isAuthenticated()) {
+    if (
+        (routes.includes(req.originalUrl) || /^\/user-[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
+        req.isAuthenticated()
+    ) {
+        console.log('sending correct file');
         res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
-    } else if (!routes.includes(req.originalUrl)){
+    } else if (!routes.includes(req.originalUrl)) {
         res.sendFile(path.join(FRONTEND_PATH, `${decodeURIComponent(req.originalUrl)}`));
-    }else {
+    } else {
         res.redirect('/');
     }
 });
