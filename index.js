@@ -345,7 +345,7 @@ app.get('/getUsers', async (req, res) => {
             const db = client.db('users');
             const users = db.collection('profiles');
             let allUsers = await users.find().toArray();
-            allUsers = allUsers.filter(x => x._id.toString() !== req.user._id.toString());
+            allUsers = allUsers.filter(x => x._id.toString() !== req.user._id.toString() && req.user.friends.filter(y => y.toString() == x._id.toString() ).length === 0);
             res.json({ message: "success", users: allUsers });
         } else {
             res.status(401).json({ message: 'Unauthorized' });
@@ -366,7 +366,7 @@ app.post('/sendFriendRequest', async (req, res) => {
             const notifications = db.collection('notifications');
 
             //check existing friend requests
-            const existingRequest = await notifications.find({ $or: [ { sender: req.user._id }, { receiver: req.user._id } ] }).toArray();
+            const existingRequest = await notifications.find({ $or: [ { sender: req.user._id, receiver: ObjectId.createFromHexString(req.body.receiver.toString()) }, { sender: ObjectId.createFromHexString(req.body.receiver.toString()), receiver: req.user._id } ] }).toArray();
 
             if (existingRequest.length === 0) {
                 let friendRequest = {
@@ -716,9 +716,26 @@ app.post('/getLists', async (req, res) => {
 });
 
 // Route to get user with given username
-app.post('/getUser', async (req, res) => {
+app.post('/getUserByUsername', async (req, res) => {
     try {
         const user = await getUser(false, req.body.username);
+        if (user === "error") {
+            console.log("NO USER FOUND");
+            return res.json({ message: "no user found" });
+        }else {
+            console.log("USER FOUND");
+            return res.json({ message: "success", user: user });
+        }
+    } catch (error) {
+        return res.status(400).json({ message: error.toString() });
+    }
+
+});
+
+// Route to get user with given id
+app.post('/getUserById', async (req, res) => {
+    try {
+        const user = await getUser(true, req.body.id);
         if (user === "error") {
             console.log("NO USER FOUND");
             return res.json({ message: "no user found" });
