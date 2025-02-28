@@ -370,7 +370,7 @@ app.post('/sendFriendRequest', async (req, res) => {
             const notifications = db.collection('notifications');
 
             //check existing friend requests
-            const existingRequest = await notifications.find({ $or: [ { sender: req.user._id, receiver: ObjectId.createFromHexString(req.body.receiver.toString()) }, { sender: ObjectId.createFromHexString(req.body.receiver.toString()), receiver: req.user._id } ] }).toArray();
+            const existingRequest = await notifications.find({type: 'friendRequest', $or: [ { sender: req.user._id, receiver: ObjectId.createFromHexString(req.body.receiver.toString()) }, { sender: ObjectId.createFromHexString(req.body.receiver.toString()), receiver: req.user._id } ] }).toArray();
 
             if (existingRequest.length === 0) {
                 let friendRequest = {
@@ -447,6 +447,41 @@ app.get('/getAllNotifications', async (req, res) => {
             const getAllNotifications = await notifications.find({ $or: [{ receiver: ObjectId.createFromHexString(req.user._id.toString()) }, { sender: ObjectId.createFromHexString(req.user._id.toString()) }] }).toArray();
 
             res.send({ message: "success", notifications: getAllNotifications });
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to get all user's friends
+app.get('/getFriends', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const profiles = db.collection('profiles');
+
+            let allFriends = [];
+            for (let i = 0; i < req.user.friends.length; i++) {
+                const friend = await profiles.findOne({ _id: ObjectId.createFromHexString(req.user.friends[i].toString()) });
+                console.log(friend);
+                if (friend !== null && friend !== undefined) {
+                    console.log('pushing now');
+                    const newFriend = {
+                        _id: friend._id,
+                        username: friend.username,
+                        profilePicture: friend.profilePicture
+                    }
+                    allFriends.push(newFriend);
+                }
+            }
+            res.status(200).json({ message: "success", friends: allFriends });
 
         } else {
             res.status(401).json({ message: 'Unauthorized' });
@@ -731,6 +766,38 @@ app.post('/getList', async (req, res) => {
             }else {
                 res.status(400).json({ message: "could not find list" });
             }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to share a list
+app.post('/shareList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection("notifications");
+
+            let newNotification = {
+                sender: ObjectId.createFromHexString(req.user._id.toString()),
+                receiver: ObjectId.createFromHexString(req.body.userId.toString()),
+                createdTimestamp: new Date(),
+                type: "share",
+                listId: ObjectId.createFromHexString(req.body.listId.toString())
+            }
+
+            const returnedNotification = await notifications.insertOne(newNotification);
+
+            newNotification._id = returnedNotification.insertedId;
+
+            res.status(200).json({ message: "success", newNotification: newNotification });
 
         } else {
             res.status(401).json({ message: 'Unauthorized' });
