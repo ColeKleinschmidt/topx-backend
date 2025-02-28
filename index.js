@@ -122,6 +122,10 @@ passport.deserializeUser(async (id, done) => {
     }
 });
 
+function capitalizeWords(str) {
+    return str.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
 function isValidEmail(email) {
     if (typeof email !== 'string') {
       return false;
@@ -532,7 +536,7 @@ app.post('/findItems', async (req, res) => {
 
             console.log('finding items');
 
-            const existingItems = await items.find({ title: { $regex: req.body.title.trim().toLowerCase() } }).toArray();
+            const existingItems = await items.find({ title: { $regex: capitalizeWords(req.body.title.trim().toLowerCase()) } }).toArray();
 
             if (existingItems.length > 0) {
                 console.log(existingItems);
@@ -546,12 +550,37 @@ app.post('/findItems', async (req, res) => {
                     imageLink = IMAGE_NOT_FOUND;
                 }
                 const newItem = {
-                    title: req.body.title,
+                    title: capitalizeWords(req.body.title.trim().toLowerCase()),
                     image: imageLink,
                 }
                 console.log(newItem);
                 res.json({ message: "success", items: [newItem] });
             }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to fidnd items
+app.get('/removeAllItems', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const items = db.collection('items');
+
+            console.log('finding items');
+
+            await items.deleteMany();
+
+            res.status(200).json({ message: "all items are deleted" });
 
         } else {
             res.status(401).json({ message: 'Unauthorized' });
@@ -575,22 +604,25 @@ app.post('/createList', async (req, res) => {
             } else {
                 //connect to collection
                 await client.connect();
-                const db = client.db('lists');
-                const lists = db.collection('lists');
+                const listDb = client.db('lists');
+                const lists = listDb.collection('lists');
+                const items = listDb.collection("items");
 
                 let newItemsList = [];
 
                 for (let i = 0; i < req.body.listItems.length; i++) {
-                    const id = req.body.listItems[i]._id;
-                    if (id === null || id === undefined) {
+                    const existingItem = await items.findOne({ title: capitalizeWords(req.body.listItems[i].title.trim().toLowerCase()) });
+                    if (existingItem == null || existingItem == undefined) {
                         const newItemId = await addItemToDb(req.body.listItems[i], req);
                         if (newItemId !== "error") {
-                            newItemsList.push(ObjectId.createFromHexString(newItemId.toString()));
+                            let item = req.body.listItems[i];
+                            item._id = ObjectId.createFromHexString(newItemId.toString());
+                            newItemsList.push(item);
                         }else {
                             break;
                         }
                     }else {
-                        newItemsList.push(ObjectId.createFromHexString(id.toString()));
+                        newItemsList.push(req.body.listItems[i]);
                     }
                 }
 
@@ -599,16 +631,19 @@ app.post('/createList', async (req, res) => {
                     res.json({ message: "could not create list, something went wrong adding one of the items from the list to the database." });
                     return;
                 }else {
-                    const r = Math.floor(Math.random() * 156) + 100; // 100-255 for softer colors
-                    const g = Math.floor(Math.random() * 156) + 100;
-                    const b = Math.floor(Math.random() * 156) + 100;
-                    const a = (Math.random() * 0.5 + 0.5).toFixed(2);
+                    const r = Math.floor(Math.random() * 70) + 30; // 30-100 for darker tones
+                    const g = Math.floor(Math.random() * 70) + 30;
+                    const b = Math.floor(Math.random() * 70) + 30;
                     let newList = {
-                        userId: req.user._id,
+                        user: {
+                            _id: req.user._id,
+                            username: req.user.username,
+                            profilePicture: req.user.profilePicture
+                        },
                         createdTimestamp: new Date(),
-                        title: req.body.title.toLowerCase().trim(),
+                        title: capitalizeWords(req.body.title.toLowerCase().trim()),
                         items: newItemsList,
-                        backgroundColor: `rgba(${r}, ${g}, ${b}, ${a})`
+                        backgroundColor: `rgba(${r}, ${g}, ${b}, 1)`
                     }
 
                     const newlyInsertedList = await lists.insertOne(newList);
@@ -669,43 +704,33 @@ app.post('/getLists', async (req, res) => {
                 { $limit: limit }
             ]).toArray();
 
-            let newLists = [];
+            res.status(200).json({ message: "success", lists: returnedLists });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
 
-            for (let i = 0; i < returnedLists.length; i++) {
-                let newList = returnedLists[i];
-                let newItemsList = [];
-                for (let j = 0; j < newList.items.length; j++) {
-                    const item = await getItem(newList.items[j]);
-                    if (item._id !== null && item._id !== undefined) {
-                        newItemsList.push(item);
-                    } else {
-                        console.log("could not get item with id: " + newList.items[j])
-                        break;
-                    }
-                }
-                if (newItemsList.length !== 10) {
-                    console.log("could lot get items for list with Id: " + newList._id);
-                    break;
-                }else {
-                    const user = await getUser(true, newList.userId);
-                    if (user !== "error") {
-                        newList.items = newItemsList;
-                        newList.user = user;
-                        newLists.push(newList);
-                    }else {
-                        console.log("could not get user");
-                        break;
-                    }
-                }
+// Route to return a specified list by ID
+app.post('/getList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const lists = db.collection("lists");
+
+            const list = await lists.findOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) });
+
+            if (list !== null && list !== undefined) {
+                res.status(200).json({ message: "success", list: list });
+            }else {
+                res.status(400).json({ message: "could not find list" });
             }
 
-            if (newLists.length !== returnedLists.length) {
-                console.log("could not retrieve items for lists");
-                res.json({ message: "could not retrieve items for lists" });
-                return;
-            }else {
-                res.json({ message: "success", lists: newLists });
-            }            
         } else {
             res.status(401).json({ message: 'Unauthorized' });
         }
@@ -823,7 +848,7 @@ app.get('/*', (req, res) => {
     console.log(`Serving SPA route for: ${req.originalUrl}`);
     const routes = ['/','/friends','/feed','/createlist','/settings'];
     if (
-        (routes.includes(req.originalUrl) || /^\/user-[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
+        (routes.includes(req.originalUrl) || /^\/user-[a-zA-Z0-9]+$/.test(req.originalUrl) || /^\/list-[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
         req.isAuthenticated()
     ) {
         console.log('sending correct file');
