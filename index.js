@@ -699,7 +699,8 @@ app.post('/getLists', async (req, res) => {
             const skip = (page - 1) * limit;
 
             // Fetch data with pagination
-            const returnedLists = await lists.aggregate([
+            let returnedLists = await lists.aggregate([
+                { $sort: { createdTimestamp: -1 } },
                 { $skip: skip },
                 { $limit: limit }
             ]).toArray();
@@ -848,7 +849,7 @@ app.get('/*', (req, res) => {
     console.log(`Serving SPA route for: ${req.originalUrl}`);
     const routes = ['/','/friends','/feed','/createlist','/settings'];
     if (
-        (routes.includes(req.originalUrl) || /^\/user-[a-zA-Z0-9]+$/.test(req.originalUrl) || /^\/list-[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
+        (routes.includes(req.originalUrl) || /^\/user\/[a-zA-Z0-9]+$/.test(req.originalUrl) || /^\/list\/[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
         req.isAuthenticated()
     ) {
         console.log('sending correct file');
