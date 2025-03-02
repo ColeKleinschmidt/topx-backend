@@ -234,6 +234,8 @@ app.post('/createAccount', async (req, res) => {
             createdTimestamp: new Date(),
             lastLoginTimestamp: new Date(),
             friends: [],
+            ignoredUsers: [],
+            blockedUsers: [],
             profilePicture: "https://static.vecteezy.com/system/resources/previews/036/280/650/non_2x/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-illustration-vector.jpg"
         };
         console.log("inserting new user into database: ");
@@ -435,6 +437,37 @@ app.post('/acceptFriendRequest', async (req, res) => {
     }
 });
 
+app.get('/getPendingFriendRequests', async (req, res) => 
+    {
+        try 
+        {
+            if (!req.isAuthenticated()) 
+            {
+                return res.status(401).json({ message: "Unauthorized" });
+            }
+    
+            await client.connect();
+            const db = client.db('users'); // Change if needed
+            const notifications = db.collection('notifications'); // Collection storing friend requests
+    
+            // ✅ Find friend requests where the logged-in user is the sender & type is "friendRequest"
+            const pendingRequests = await notifications.find({ 
+                sender: req.user._id, 
+                type: "friendRequest" 
+            }).toArray();
+    
+            // ✅ Extract only the receiver IDs (who the request was sent to)
+            const pendingUserIds = pendingRequests.map(req => req.receiver.toString());
+    
+            res.json({ requests: pendingUserIds });
+        } 
+        catch (error) 
+        {
+            console.error("❌ Error fetching pending requests:", error);
+            res.status(500).json({ message: "Server error", error });
+        }
+    });    
+    
 // Route to get all user notifications
 app.get('/getAllNotifications', async (req, res) => {
     try {
@@ -842,7 +875,67 @@ app.post('/getUserById', async (req, res) => {
 
 });
 
-    
+app.post('/getListsByUserId', async (req, res) => 
+{
+    try 
+    {
+        if (req.isAuthenticated()) 
+        {
+            await client.connect();
+            const db = client.db('lists');
+            const listsCollection = db.collection("lists");
+
+            console.log("Received request with body:", req.body);
+
+            let { userId, page = 1, limit = 10 } = req.body;
+            if (!userId) 
+            {
+                return res.status(400).json({ message: "Missing userId" });
+            }
+
+            const skip = (page - 1) * limit;
+
+            // Convert userId to ObjectId
+            let query = { "user._id": new ObjectId(userId) };
+
+            console.log(`Searching for lists with query:`, query);
+
+            const userLists = await listsCollection
+                .find(query, 
+                {
+                    projection: 
+                    {
+                        _id: 1, 
+                        "user._id": 1, 
+                        "user.username": 1, 
+                        "user.profilePicture": 1,
+                        title: 1,
+                        createdTimestamp: 1,
+                        backgroundColor: 1,
+                        "items.title": 1,
+                        "items.image": 1
+                    }
+                }) 
+                .sort({ createdTimestamp: -1 })
+                .skip(skip)
+                .limit(limit)
+                .toArray();
+
+            console.log(`Found ${userLists.length} lists for userId ${userId}`);
+
+            res.status(200).json({ message: "success", lists: userLists });
+        } 
+        else 
+        {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } 
+    catch (error) 
+    {
+        console.log("Server error:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
 
 // Route to check authentication status
 app.get('/authStatus', (req, res) => 
@@ -912,7 +1005,12 @@ app.get('/', (req, res) => {
 
 app.use(express.static(FRONTEND_PATH))
 
-app.get('/*', (req, res) => {
+app.get('/*', (req, res, next) => {
+
+    if (req.originalUrl.startsWith('/getIgnoredUsers') || req.originalUrl.startsWith('/api/')) 
+    {
+            return next();
+    }
     console.log(`Serving SPA route for: ${req.originalUrl}`);
     const routes = ['/','/friends','/feed','/createlist','/settings'];
     if (
@@ -928,9 +1026,72 @@ app.get('/*', (req, res) => {
     }
 });
 
+app.post('/ignoreUser', async (req, res) => 
+{
+    console.log(`Ignoring user request received for: ${req.originalUrl}`);
 
+    const { userId, ignoredUserId } = req.body;
 
+    if (!userId || !ignoredUserId) 
+    {
+        return res.status(400).json({ message: "Both userId and ignoredUserId are required." });
+    }
 
+    try 
+    {
+        await client.connect();
+        const db = client.db('users');
+        const users = db.collection('profiles');
+
+        console.log(`Adding ignored user: ${ignoredUserId} to user: ${userId}`);
+
+        await users.updateOne(
+            { _id: new ObjectId(userId) }, 
+            { $addToSet: { ignoredUsers: new ObjectId(ignoredUserId) } } // Prevents duplicates
+        );
+
+        console.log(`User ${ignoredUserId} ignored successfully.`);
+        res.json({ message: "User ignored successfully." });
+
+    } 
+    catch (error) 
+    {
+        console.error("Error ignoring user:", error);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+app.get('/getIgnoredUsers', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        await client.connect();
+        const db = client.db("users");
+        const profiles = db.collection("profiles");
+
+        const currentUser = await profiles.findOne({ _id: req.user._id });
+
+        if (!currentUser) 
+        {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        console.log("🚫 Ignored Users List:", currentUser.ignoredUsers);
+
+        res.status(200).json({ ignoredUsers: currentUser.ignoredUsers || [] });
+    } 
+    catch (error) 
+    {
+        console.log("🚨 Server error:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+    
 app.listen(process.env.PORT, () => {
     console.log(`Server is running on port ${process.env.PORT}`);
 });
