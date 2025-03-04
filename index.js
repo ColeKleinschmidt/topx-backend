@@ -753,32 +753,47 @@ app.post('/searchList', async (req, res) => {
     }
 });
 
-// Route to return lists with pagination
-app.post('/getLists', async (req, res) => {
-    try {
-        if (req.isAuthenticated()) {
-            // Connect to collection
-            await client.connect();
-            const db = client.db('lists');
-            const lists = db.collection("lists");
-
-            // Extract pagination parameters
-            const { page = 1, limit = 10 } = req.body;
-            const skip = (page - 1) * limit;
-
-            // Fetch data with pagination
-            let returnedLists = await lists.aggregate([
-                { $sort: { createdTimestamp: -1 } },
-                { $skip: skip },
-                { $limit: limit }
-            ]).toArray();
-
-            res.status(200).json({ message: "success", lists: returnedLists });
-        } else {
-            res.status(401).json({ message: 'Unauthorized' });
+// Route to return lists with pagination (EXCLUDES BLOCKED USERS' LISTS)
+app.post('/getLists', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
         }
-    } catch (error) {
-        console.log(error);
+
+        await client.connect();
+        const db = client.db('lists');
+        const lists = db.collection("lists");
+        const profiles = client.db("users").collection("profiles"); // User profiles collection
+
+        const { page = 1, limit = 10 } = req.body;
+        const skip = (page - 1) * limit;
+
+        // ✅ Fetch blocked users list for the logged-in user
+        const currentUser = await profiles.findOne({ _id: req.user._id });
+
+        if (!currentUser) 
+        {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const blockedUserIds = currentUser.blockedUsers || []; // Get list of blocked user IDs
+
+        // ✅ Exclude lists from blocked users
+        let returnedLists = await lists.aggregate([
+            { $match: { userId: { $nin: blockedUserIds } } }, // Exclude blocked users
+            { $sort: { createdTimestamp: -1 } },
+            { $skip: skip },
+            { $limit: limit }
+        ]).toArray();
+
+        res.status(200).json({ message: "success", lists: returnedLists });
+    } 
+    catch (error) 
+    {
+        console.log("🚨 Error fetching lists:", error);
         res.status(500).json({ message: 'Server error', error });
     }
 });
@@ -988,44 +1003,6 @@ app.get('/scrape-images', async (req, res) => {
     }
 });
 
-const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
-
-console.log('Serving frontend from:', FRONTEND_PATH);
-console.log(`path: http://127.0.0.1:${process.env.PORT}`);
-
-app.get('/', (req, res) => {
-    console.log('working');
-    if (req.isAuthenticated()) {
-        res.redirect('/feed');
-    } else {
-        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
-    }
-    
-});
-
-app.use(express.static(FRONTEND_PATH))
-
-app.get('/*', (req, res, next) => {
-
-    if (req.originalUrl.startsWith('/getIgnoredUsers') || req.originalUrl.startsWith('/api/')) 
-    {
-            return next();
-    }
-    console.log(`Serving SPA route for: ${req.originalUrl}`);
-    const routes = ['/','/friends','/feed','/createlist','/settings'];
-    if (
-        (routes.includes(req.originalUrl) || /^\/user\/[a-zA-Z0-9]+$/.test(req.originalUrl) || /^\/list\/[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
-        req.isAuthenticated()
-    ) {
-        console.log('sending correct file');
-        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
-    } else if (!routes.includes(req.originalUrl)) {
-        res.sendFile(path.join(FRONTEND_PATH, `${decodeURIComponent(req.originalUrl)}`));
-    } else {
-        res.redirect('/');
-    }
-});
-
 app.post('/ignoreUser', async (req, res) => 
 {
     console.log(`Ignoring user request received for: ${req.originalUrl}`);
@@ -1089,6 +1066,212 @@ app.get('/getIgnoredUsers', async (req, res) =>
     {
         console.log("🚨 Server error:", error);
         res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+app.post('/toggleBlockUser', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        await client.connect();
+        const db = client.db("users");
+        const profiles = db.collection("profiles");
+
+        const { userId, blockedUserId } = req.body;
+
+        if (!userId || !blockedUserId) 
+        {
+            return res.status(400).json({ message: "Missing user ID or blocked user ID." });
+        }
+
+        const currentUser = await profiles.findOne({ _id: new ObjectId(userId) });
+
+        if (!currentUser) 
+        {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const isBlocked = currentUser.blockedUsers?.includes(blockedUserId);
+
+        if (isBlocked) 
+        {
+            // ✅ Unblock user and remove from ignoredUsers
+            await profiles.updateOne(
+                { _id: new ObjectId(userId) },
+                { 
+                    $pull: { blockedUsers: blockedUserId, ignoredUsers: blockedUserId }
+                }
+            );
+
+            console.log(`✅ User ${blockedUserId} unblocked by ${userId}`);
+            return res.status(200).json({ message: "unblocked" });
+        } 
+        else 
+        {
+            // ✅ Block user and add to ignoredUsers
+            await profiles.updateOne(
+                { _id: new ObjectId(userId) },
+                { 
+                    $addToSet: { blockedUsers: blockedUserId, ignoredUsers: blockedUserId }
+                }
+            );
+
+            console.log(`🚫 User ${blockedUserId} blocked by ${userId}`);
+            return res.status(200).json({ message: "blocked" });
+        }
+    } 
+    catch (error) 
+    {
+        console.error("🚨 Server error:", error);
+        res.status(500).json({ message: "Server error", error });
+    }
+});
+
+// ✅ Ensure this is at the top of your route definitions
+app.get('/getBlockedUsers', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        await client.connect();
+        const db = client.db("users");
+        const profiles = db.collection("profiles");
+
+        const currentUser = await profiles.findOne({ _id: req.user._id });
+
+        if (!currentUser) 
+        {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        res.status(200).json({ blockedUsers: currentUser.blockedUsers || [] });
+    } 
+    catch (error) 
+    {
+        console.log("🚨 Error fetching blocked users:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+app.post('/getLists', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        await client.connect();
+        const db = client.db('lists');
+        const lists = db.collection("lists");
+        const profiles = client.db("users").collection("profiles");
+
+        const { page = 1, limit = 10 } = req.body;
+        const skip = (page - 1) * limit;
+
+        // ✅ Fetch blocked users list for the logged-in user
+        const currentUser = await profiles.findOne({ _id: new ObjectId(req.user._id) });
+
+        if (!currentUser) 
+        {
+            console.log("❌ User not found in profiles collection.");
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        let blockedUserIds = currentUser.blockedUsers || [];
+
+        // ✅ Ensure blockedUserIds are converted correctly
+        if (blockedUserIds.length > 0) 
+        {
+            try 
+            {
+                blockedUserIds = blockedUserIds.map(id => new ObjectId(id));
+            } 
+            catch (error) 
+            {
+                console.error("🚨 Error converting blockedUserIds to ObjectId:", error);
+            }
+        }
+
+        console.log("🚫 Blocked User IDs (converted):", blockedUserIds); // ✅ Debugging
+
+        // ✅ Ensure correct filtering before querying MongoDB
+        const queryFilter = { userId: { $nin: blockedUserIds } };
+        console.log("🔍 Querying lists with filter:", JSON.stringify(queryFilter));
+
+        // ✅ Fetch lists while excluding blocked users
+        let returnedLists = await lists.aggregate([
+            { $match: queryFilter }, // ✅ Ensure blocked users are excluded
+            { $sort: { createdTimestamp: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+                $project: 
+                {
+                    userId: { $ifNull: ["$userId", "UNKNOWN"] }, // ✅ Ensure userId is always included
+                    title: 1,
+                    items: 1,
+                    createdTimestamp: 1
+                }
+            }
+        ]).toArray();
+
+        console.log("✅ Filtered Lists Sent:", JSON.stringify(returnedLists, null, 2)); // ✅ Debugging
+
+        res.status(200).json({ message: "success", lists: returnedLists });
+    } 
+    catch (error) 
+    {
+        console.log("🚨 Error fetching lists:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
+
+console.log('Serving frontend from:', FRONTEND_PATH);
+console.log(`path: http://127.0.0.1:${process.env.PORT}`);
+
+app.get('/', (req, res) => {
+    console.log('working');
+    if (req.isAuthenticated()) {
+        res.redirect('/feed');
+    } else {
+        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+    }
+    
+});
+
+app.use(express.static(FRONTEND_PATH))
+
+app.get('/*', (req, res, next) => {
+
+    if (req.originalUrl.startsWith('/getIgnoredUsers') || req.originalUrl.startsWith('/api/')) 
+    {
+            return next();
+    }
+    console.log(`Serving SPA route for: ${req.originalUrl}`);
+    const routes = ['/','/friends','/feed','/createlist','/settings'];
+    if (
+        (routes.includes(req.originalUrl) || /^\/user\/[a-zA-Z0-9]+$/.test(req.originalUrl) || /^\/list\/[a-zA-Z0-9]+$/.test(req.originalUrl)) &&  
+        req.isAuthenticated()
+    ) {
+        console.log('sending correct file');
+        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+    } else if (!routes.includes(req.originalUrl)) {
+        res.sendFile(path.join(FRONTEND_PATH, `${decodeURIComponent(req.originalUrl)}`));
+    } else {
+        res.redirect('/');
     }
 });
     
