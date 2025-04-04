@@ -43,7 +43,7 @@ const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mo
 
 // Use middlewares
 app.use(cors({
-    origin: 'http://127.0.0.1:5500', // Adjust this based on your frontend
+    origin: 'https://topx-frontend.vercel.app', // Adjust this based on your frontend
     credentials: true,
 }));
 app.use(bodyParser.json());
