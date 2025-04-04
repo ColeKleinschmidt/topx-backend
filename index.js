@@ -1163,6 +1163,7 @@ const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
 console.log('Serving frontend from:', FRONTEND_PATH);
 console.log(`path: http://127.0.0.1:${process.env.PORT}`);
 
+/*
 app.get('/', (req, res) => {
     console.log('working');
     if (req.isAuthenticated()) {
@@ -1172,7 +1173,9 @@ app.get('/', (req, res) => {
     }
     
 });
+*/
 
+/*
 app.get('/*', (req, res, next) => {
 
     if (req.originalUrl.startsWith('/getIgnoredUsers') || req.originalUrl.startsWith('/api/')) 
@@ -1193,7 +1196,8 @@ app.get('/*', (req, res, next) => {
         res.redirect('/');
     }
 });
-    
+*/
+
 app.listen(process.env.PORT, () => {
     console.log(`Server is running on port ${process.env.PORT}`);
 });
