@@ -1173,8 +1173,6 @@ app.get('/', (req, res) => {
     
 });
 
-app.use(express.static(FRONTEND_PATH))
-
 app.get('/*', (req, res, next) => {
 
     if (req.originalUrl.startsWith('/getIgnoredUsers') || req.originalUrl.startsWith('/api/')) 
