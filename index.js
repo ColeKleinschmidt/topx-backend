@@ -771,19 +771,15 @@ app.post('/getLists', async (req, res) =>
         const { page = 1, limit = 10 } = req.body;
         const skip = (page - 1) * limit;
 
-        // ✅ Fetch blocked users list for the logged-in user
-        const currentUser = await profiles.findOne({ _id: req.user._id });
 
-        if (!currentUser) 
-        {
-            return res.status(404).json({ message: "User not found." });
-        }
+        const blockedUserIds = req.user?.blockedUsers || []; // Get list of blocked user IDs
 
-        const blockedUserIds = currentUser.blockedUsers || []; // Get list of blocked user IDs
+        console.log("blocked users:");
+        console.log(blockedUserIds);
 
         // ✅ Exclude lists from blocked users
         let returnedLists = await lists.aggregate([
-            { $match: { userId: { $nin: blockedUserIds } } }, // Exclude blocked users
+            { $match: { "user._id": { $nin: blockedUserIds } } }, // Exclude blocked users
             { $sort: { createdTimestamp: -1 } },
             { $skip: skip },
             { $limit: limit }
@@ -1023,8 +1019,8 @@ app.post('/ignoreUser', async (req, res) =>
         console.log(`Adding ignored user: ${ignoredUserId} to user: ${userId}`);
 
         await users.updateOne(
-            { _id: new ObjectId(userId) }, 
-            { $addToSet: { ignoredUsers: new ObjectId(ignoredUserId) } } // Prevents duplicates
+            { _id: ObjectId.createFromHexString(userId.toString()) }, 
+            { $addToSet: { ignoredUsers: ObjectId.createFromHexString(ignoredUserId.toString()) } } // Prevents duplicates
         );
 
         console.log(`User ${ignoredUserId} ignored successfully.`);
@@ -1089,7 +1085,7 @@ app.post('/toggleBlockUser', async (req, res) =>
             return res.status(400).json({ message: "Missing user ID or blocked user ID." });
         }
 
-        const currentUser = await profiles.findOne({ _id: new ObjectId(userId) });
+        const currentUser = await profiles.findOne({ _id: ObjectId.createFromHexString(userId.toString()) });
 
         if (!currentUser) 
         {
@@ -1102,7 +1098,7 @@ app.post('/toggleBlockUser', async (req, res) =>
         {
             // ✅ Unblock user and remove from ignoredUsers
             await profiles.updateOne(
-                { _id: new ObjectId(userId) },
+                { _id: ObjectId.createFromHexString(userId.toString()) },
                 { 
                     $pull: { blockedUsers: blockedUserId, ignoredUsers: blockedUserId }
                 }
@@ -1115,9 +1111,9 @@ app.post('/toggleBlockUser', async (req, res) =>
         {
             // ✅ Block user and add to ignoredUsers
             await profiles.updateOne(
-                { _id: new ObjectId(userId) },
+                { _id: ObjectId.createFromHexString(userId.toString()) },
                 { 
-                    $addToSet: { blockedUsers: blockedUserId, ignoredUsers: blockedUserId }
+                    $addToSet: { blockedUsers: ObjectId.createFromHexString(blockedUserId.toString()), ignoredUsers: ObjectId.createFromHexString(blockedUserId.toString()) }
                 }
             );
 
@@ -1158,81 +1154,6 @@ app.get('/getBlockedUsers', async (req, res) =>
     catch (error) 
     {
         console.log("🚨 Error fetching blocked users:", error);
-        res.status(500).json({ message: 'Server error', error });
-    }
-});
-
-app.post('/getLists', async (req, res) => 
-{
-    try 
-    {
-        if (!req.isAuthenticated()) 
-        {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        await client.connect();
-        const db = client.db('lists');
-        const lists = db.collection("lists");
-        const profiles = client.db("users").collection("profiles");
-
-        const { page = 1, limit = 10 } = req.body;
-        const skip = (page - 1) * limit;
-
-        // ✅ Fetch blocked users list for the logged-in user
-        const currentUser = await profiles.findOne({ _id: new ObjectId(req.user._id) });
-
-        if (!currentUser) 
-        {
-            console.log("❌ User not found in profiles collection.");
-            return res.status(404).json({ message: "User not found." });
-        }
-
-        let blockedUserIds = currentUser.blockedUsers || [];
-
-        // ✅ Ensure blockedUserIds are converted correctly
-        if (blockedUserIds.length > 0) 
-        {
-            try 
-            {
-                blockedUserIds = blockedUserIds.map(id => new ObjectId(id));
-            } 
-            catch (error) 
-            {
-                console.error("🚨 Error converting blockedUserIds to ObjectId:", error);
-            }
-        }
-
-        console.log("🚫 Blocked User IDs (converted):", blockedUserIds); // ✅ Debugging
-
-        // ✅ Ensure correct filtering before querying MongoDB
-        const queryFilter = { userId: { $nin: blockedUserIds } };
-        console.log("🔍 Querying lists with filter:", JSON.stringify(queryFilter));
-
-        // ✅ Fetch lists while excluding blocked users
-        let returnedLists = await lists.aggregate([
-            { $match: queryFilter }, // ✅ Ensure blocked users are excluded
-            { $sort: { createdTimestamp: -1 } },
-            { $skip: skip },
-            { $limit: limit },
-            {
-                $project: 
-                {
-                    userId: { $ifNull: ["$userId", "UNKNOWN"] }, // ✅ Ensure userId is always included
-                    title: 1,
-                    items: 1,
-                    createdTimestamp: 1
-                }
-            }
-        ]).toArray();
-
-        console.log("✅ Filtered Lists Sent:", JSON.stringify(returnedLists, null, 2)); // ✅ Debugging
-
-        res.status(200).json({ message: "success", lists: returnedLists });
-    } 
-    catch (error) 
-    {
-        console.log("🚨 Error fetching lists:", error);
         res.status(500).json({ message: 'Server error', error });
     }
 });
