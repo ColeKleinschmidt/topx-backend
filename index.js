@@ -47,13 +47,18 @@ app.use(cors({
     credentials: true,
 }));
 app.use(bodyParser.json());
+
+app.set('trust proxy', 1);
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'supersecret',
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({ mongoUrl: uri }),
-    cookie: { secure: false,
-            sameSite: "lax",
+    cookie: 
+    { 
+        secure: true,
+        sameSite: "none",
     } // Set to true if using HTTPS
 }));
 app.use(passport.initialize());
