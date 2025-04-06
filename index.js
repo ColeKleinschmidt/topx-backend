@@ -59,7 +59,7 @@ app.use(session({
     { 
         secure: true,
         sameSite: "none",
-    } // Set to true if using HTTPS
+    }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
