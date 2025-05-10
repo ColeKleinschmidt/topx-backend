@@ -43,7 +43,7 @@ const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mo
 
 // Use middlewares
 app.use(cors({
-    origin: 'https://topx-frontend.vercel.app', // Adjust this based on your frontend
+    origin: 'http://192.168.86.73:5173', // Adjust this based on your frontend
     credentials: true,
 }));
 app.use(bodyParser.json());
@@ -55,10 +55,9 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({ mongoUrl: uri }),
-    cookie: 
-    { 
-        secure: true,
-        sameSite: "none",
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production', // Only secure in production
+        sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax", // None for cross-site, Lax for local
     }
 }));
 app.use(passport.initialize());
@@ -598,7 +597,7 @@ app.post('/removeFriend', async (req, res) => {
     }
 });
 
-// Route to fidnd items
+// Search for items to add to list given a search query
 app.post('/findItems', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
@@ -640,7 +639,7 @@ app.post('/findItems', async (req, res) => {
     }
 });
 
-// Route to fidnd items
+// Route to remove all items
 app.get('/removeAllItems', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
