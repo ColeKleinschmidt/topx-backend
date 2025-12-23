@@ -39,11 +39,11 @@ const multer = require("multer");
 const app = express();
 
 // Connection URI
-const uri = `mongodb+srv://topxAdmin:${process.env.MONGO_PASSWORD}@topx.c8dwz.mongodb.net/?retryWrites=true&w=majority&appName=TopX`;
+const uri = process.env.MONGO_URI;
 
 // Use middlewares
 app.use(cors({
-    origin: 'http://192.168.86.73:5173', // Adjust this based on your frontend
+    origin: 'http://192.168.86.186:5173', // Adjust this based on your frontend
     credentials: true,
 }));
 app.use(bodyParser.json());
@@ -703,9 +703,6 @@ app.post('/createList', async (req, res) => {
                     res.json({ message: "could not create list, something went wrong adding one of the items from the list to the database." });
                     return;
                 }else {
-                    const r = Math.floor(Math.random() * 70) + 30; // 30-100 for darker tones
-                    const g = Math.floor(Math.random() * 70) + 30;
-                    const b = Math.floor(Math.random() * 70) + 30;
                     let newList = {
                         user: {
                             _id: req.user._id,
@@ -715,13 +712,66 @@ app.post('/createList', async (req, res) => {
                         createdTimestamp: new Date(),
                         title: capitalizeWords(req.body.title.toLowerCase().trim()),
                         items: newItemsList,
-                        backgroundColor: `rgba(${r}, ${g}, ${b}, 1)`
                     }
 
                     const newlyInsertedList = await lists.insertOne(newList);
 
                     newList._id = newlyInsertedList.insertedId;
                     res.json({ message: "success", list: newList });
+                    return;
+                }
+            }
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to update a list
+app.post('/updateList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            if (req.body.items.length < 10) {
+                console.log("list does not have 10 items");
+                res.json({ message: "list does not have 10 items" });
+                return;
+            } else {
+                //connect to collection
+                await client.connect();
+                const listDb = client.db('lists');
+                const lists = listDb.collection('lists');
+                const items = listDb.collection("items");
+
+                let newItemsList = [];
+
+                for (let i = 0; i < req.body.items.length; i++) {
+                    const existingItem = await items.findOne({ title: capitalizeWords(req.body.items[i].title.trim().toLowerCase()) });
+                    if (existingItem == null || existingItem == undefined) {
+                        const newItemId = await addItemToDb(req.body.items[i], req);
+                        if (newItemId !== "error") {
+                            let item = req.body.items[i];
+                            item._id = ObjectId.createFromHexString(newItemId.toString());
+                            newItemsList.push(item);
+                        }else {
+                            break;
+                        }
+                    }else {
+                        newItemsList.push(req.body.items[i]);
+                    }
+                }
+
+                if (newItemsList.length !== 10) {
+                    console.log("something went wrong adding one of the items from the list");
+                    res.json({ message: "could not create list, something went wrong adding one of the items from the list to the database." });
+                    return;
+                }else {
+                    const updatedList = await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $set: { items: newItemsList, title: capitalizeWords(req.body.title.toLowerCase().trim()), updatedTimestamp: new Date() } });
+
+                    res.json({ message: "success", list: updatedList });
                     return;
                 }
             }
