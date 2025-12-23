@@ -491,7 +491,7 @@ app.get('/getAllNotifications', async (req, res) => {
             const db = client.db('users');
             const notifications = db.collection('notifications');
 
-            const getAllNotifications = await notifications.find({ $or: [{ receiver: ObjectId.createFromHexString(req.user._id.toString()) }, { sender: ObjectId.createFromHexString(req.user._id.toString()) }] }).toArray();
+            const getAllNotifications = await notifications.find({ $or: [{ receiver: ObjectId.createFromHexString(req.user._id.toString()) }, { sender: ObjectId.createFromHexString(req.user._id.toString()) }] }).sort({ createdTimestamp: -1 }).toArray();
 
             res.send({ message: "success", notifications: getAllNotifications });
 
@@ -888,7 +888,7 @@ app.post('/getLists', async (req, res) =>
 
         // ✅ Exclude lists from blocked users
         let returnedLists = await lists.aggregate([
-            { $match: { "user._id": { $nin: blockedUserIds } } }, // Exclude blocked users
+            { $match: { "user._id": { $nin: blockedUserIds }, "user._id": { $ne: req.user?._id } } }, // Exclude blocked users
             { $sort: { createdTimestamp: -1 } },
             { $skip: skip },
             { $limit: limit }
