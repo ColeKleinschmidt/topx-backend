@@ -597,6 +597,22 @@ app.post('/removeFriend', async (req, res) => {
     }
 });
 
+const searchNewItem = async (title) => {
+    const getImage = await scrapeImages(title);
+    let imageLink;
+    if (getImage.items && getImage.items.length > 0) {
+        imageLink = getImage.items[0].link;
+    }else {
+        imageLink = IMAGE_NOT_FOUND;
+    }
+    const newItem = {
+        title: capitalizeWords(title.trim().toLowerCase()),
+        image: imageLink,
+    }
+    console.log(newItem);
+    return newItem;
+}
+
 // Search for items to add to list given a search query
 app.post('/findItems', async (req, res) => {
     try {
@@ -610,22 +626,17 @@ app.post('/findItems', async (req, res) => {
 
             const existingItems = await items.find({ title: { $regex: capitalizeWords(req.body.title.trim().toLowerCase()) } }).toArray();
 
+            console.log(existingItems);
             if (existingItems.length > 0) {
-                console.log(existingItems);
-                res.json({ message: "success", items: existingItems });
+                if (existingItems.some((x) => x.title === capitalizeWords(req.body.title.trim().toLowerCase()))) {
+                    res.json({ message: "success", items: existingItems });
+                } else {
+                    const newItem = await searchNewItem(req.body.title);
+                    existingItems.push(newItem);
+                    res.json({ message: "success", items: existingItems });
+                }
             }else {
-                const getImage = await scrapeImages(req.body.title);
-                let imageLink;
-                if (getImage.items && getImage.items.length > 0) {
-                    imageLink = getImage.items[0].link;
-                }else {
-                    imageLink = IMAGE_NOT_FOUND;
-                }
-                const newItem = {
-                    title: capitalizeWords(req.body.title.trim().toLowerCase()),
-                    image: imageLink,
-                }
-                console.log(newItem);
+                const newItem = await searchNewItem(req.body.title);
                 res.json({ message: "success", items: [newItem] });
             }
 
