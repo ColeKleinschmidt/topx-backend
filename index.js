@@ -264,12 +264,22 @@ app.post('/createAccount', async (req, res) => {
 });
 
 // Login route
-app.post('/login', passport.authenticate('local'), (req, res) => {
-    const { _id, email, username, iconUrl } = req.user;
-    res.json({
-        message: 'success',
-        user: { _id, email, username, iconUrl }
-    });
+app.post('/login', (req, res, next) => {
+    passport.authenticate('local', (err, user, info) => {
+        if (err) return res.status(500).json({ message: 'Server error', error: err });
+        if (!user) {
+            // `info` contains the message provided in your strategy (e.g., { message: 'User not found' })
+            return res.status(401).json({ message: info?.message || 'Invalid credentials' });
+        }
+        req.logIn(user, (err) => {
+            if (err) return res.status(500).json({ message: 'Login failed', error: err });
+            const { _id, email, username, iconUrl } = user;
+            return res.json({
+                message: 'success',
+                user: { _id, email, username, iconUrl }
+            });
+        });
+    })(req, res, next);
 });
 
 // Logout route
