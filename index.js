@@ -574,7 +574,7 @@ app.post('/declineFriendRequest', async (req, res) => {
 
 // Route to remove a notification
 app.post('/removeNotification', async (req, res) => {
-    console.log('removing notification with id: ' + req.body.requestId);
+    console.log('removing notification with id: ' + req.body.notificationId);
     try {
         if (req.isAuthenticated()) {
             //connect to collection
@@ -583,7 +583,7 @@ app.post('/removeNotification', async (req, res) => {
             const notifications = db.collection('notifications');
 
             //check if notification exists
-            const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.requestId.toString()) });
+            const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.notificationId.toString()) });
 
             if (existingRequest === null || existingRequest === undefined) {
                 res.json({ message: "notification doesn't exist" });
