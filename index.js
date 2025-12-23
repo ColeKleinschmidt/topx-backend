@@ -815,7 +815,11 @@ app.post('/searchList', async (req, res) => {
             const db = client.db('lists');
             const lists = db.collection("lists");
 
-            const returnedLists = lists.find({ title: { $regex: req.body.query } }).toArray();
+            const query = req.body.query ? req.body.query.trim() : '';
+            console.log("query: " + query);
+            if (!query) return res.json({ message: "success", lists: [] });
+
+            const returnedLists = await lists.find({ title: { $regex: query, $options: 'i' } }).toArray();
 
             res.json({ message: "success", lists: returnedLists });
         } else {
