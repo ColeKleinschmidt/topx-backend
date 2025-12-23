@@ -903,6 +903,47 @@ app.post('/getLists', async (req, res) =>
     }
 });
 
+// Route to return lists with pagination (EXCLUDES BLOCKED USERS' LISTS)
+app.post('/getFriendsLists', async (req, res) => 
+{
+    try 
+    {
+        if (!req.isAuthenticated()) 
+        {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        await client.connect();
+        const db = client.db('lists');
+        const lists = db.collection("lists");
+        const profiles = client.db("users").collection("profiles"); // User profiles collection
+
+        const { page = 1, limit = 10 } = req.body;
+        const skip = (page - 1) * limit;
+
+
+        const friends = req.user?.friends || []; // Get list of friends
+
+        console.log("friends:");
+        console.log(friends);
+
+        // ✅ get lists from friends
+        let returnedLists = await lists.aggregate([
+            { $match: { "user._id": { $in: friends } } }, // Include only friends' lists
+            { $sort: { createdTimestamp: -1 } },
+            { $skip: skip },
+            { $limit: limit }
+        ]).toArray();
+
+        res.status(200).json({ message: "success", lists: returnedLists });
+    } 
+    catch (error) 
+    {
+        console.log("🚨 Error fetching lists:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
 // Route to return a specified list by ID
 app.post('/getList', async (req, res) => {
     try {
