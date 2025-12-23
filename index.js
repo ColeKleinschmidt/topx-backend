@@ -572,6 +572,36 @@ app.post('/declineFriendRequest', async (req, res) => {
     }
 });
 
+// Route to remove a notification
+app.post('/removeNotification', async (req, res) => {
+    console.log('removing notification with id: ' + req.body.requestId);
+    try {
+        if (req.isAuthenticated()) {
+            //connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const notifications = db.collection('notifications');
+
+            //check if notification exists
+            const existingRequest = await notifications.findOne({ _id: ObjectId.createFromHexString(req.body.requestId.toString()) });
+
+            if (existingRequest === null || existingRequest === undefined) {
+                res.json({ message: "notification doesn't exist" });
+            } else {
+                await notifications.deleteOne({ _id: existingRequest._id });
+                res.json({ message: "success" });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
 // Route to remove a friend
 app.post('/removeFriend', async (req, res) => {
     try {
