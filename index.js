@@ -763,6 +763,8 @@ app.post('/createList', async (req, res) => {
                         createdTimestamp: new Date(),
                         title: capitalizeWords(req.body.title.toLowerCase().trim()),
                         items: newItemsList,
+                        likes: 0,
+                        comments: 0
                     }
 
                     const newlyInsertedList = await lists.insertOne(newList);
@@ -875,6 +877,7 @@ app.post('/getLists', async (req, res) =>
         await client.connect();
         const db = client.db('lists');
         const lists = db.collection("lists");
+        const likes = db.collection("likes"); // Likes collection
         const profiles = client.db("users").collection("profiles"); // User profiles collection
 
         const { page = 1, limit = 10 } = req.body;
@@ -893,6 +896,15 @@ app.post('/getLists', async (req, res) =>
             { $skip: skip },
             { $limit: limit }
         ]).toArray();
+
+        for (let i = 0; i < returnedLists.length; i++) {
+            const hasUserLiked = await likes.findOne({ "listId": ObjectId.createFromHexString(returnedLists[i]._id.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) });
+            if (hasUserLiked) {
+                returnedLists[i].userHasLiked = true;
+            } else {
+                returnedLists[i].userHasLiked = false;
+            }
+        }
 
         res.status(200).json({ message: "success", lists: returnedLists });
     } 
@@ -916,6 +928,7 @@ app.post('/getFriendsLists', async (req, res) =>
         await client.connect();
         const db = client.db('lists');
         const lists = db.collection("lists");
+        const likes = db.collection("likes"); // Likes collection
         const profiles = client.db("users").collection("profiles"); // User profiles collection
 
         const { page = 1, limit = 10 } = req.body;
@@ -935,6 +948,15 @@ app.post('/getFriendsLists', async (req, res) =>
             { $limit: limit }
         ]).toArray();
 
+        for (let i = 0; i < returnedLists.length; i++) {
+            const hasUserLiked = await likes.findOne({ "listId": ObjectId.createFromHexString(returnedLists[i]._id.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) });
+            if (hasUserLiked) {
+                returnedLists[i].userHasLiked = true;
+            } else {
+                returnedLists[i].userHasLiked = false;
+            }
+        }
+
         res.status(200).json({ message: "success", lists: returnedLists });
     } 
     catch (error) 
@@ -952,14 +974,23 @@ app.post('/getList', async (req, res) => {
             await client.connect();
             const db = client.db('lists');
             const lists = db.collection("lists");
+            const likes = db.collection("likes"); // Likes collection
 
             const list = await lists.findOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) });
 
-            if (list !== null && list !== undefined) {
-                res.status(200).json({ message: "success", list: list });
-            }else {
+            if (list == null || list == undefined) {
                 res.status(400).json({ message: "could not find list" });
+                return;
             }
+
+            const hasUserLiked = await likes.findOne({ "listId": ObjectId.createFromHexString(req.body.listId.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) });
+            if (hasUserLiked) {
+                list.userHasLiked = true;
+            } else {
+                list.userHasLiked = false;
+            }
+
+            res.status(200).json({ message: "success", list: list });
 
         } else {
             res.status(401).json({ message: 'Unauthorized' });
@@ -1044,6 +1075,7 @@ app.post('/getListsByUserId', async (req, res) =>
         {
             await client.connect();
             const db = client.db('lists');
+            const likes = db.collection("likes"); // Likes collection
             const listsCollection = db.collection("lists");
 
             console.log("Received request with body:", req.body);
@@ -1081,6 +1113,15 @@ app.post('/getListsByUserId', async (req, res) =>
                 .skip(skip)
                 .limit(limit)
                 .toArray();
+
+            for (let i = 0; i < userLists.length; i++) {
+                const hasUserLiked = await likes.findOne({ "listId": ObjectId.createFromHexString(userLists[i]._id.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) });
+                if (hasUserLiked) {
+                    userLists[i].userHasLiked = true;
+                } else {
+                    userLists[i].userHasLiked = false;
+                }
+            }
 
             console.log(`Found ${userLists.length} lists for userId ${userId}`);
 
@@ -1304,6 +1345,188 @@ app.get('/getBlockedUsers', async (req, res) =>
     catch (error) 
     {
         console.log("🚨 Error fetching blocked users:", error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to add a comment to a list
+app.post('/postComment', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const comments = db.collection("comments");
+            const lists = db.collection("lists");
+
+            await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $inc: { comments: 1} });
+
+            const comment = {
+                listId: ObjectId.createFromHexString(req.body.listId.toString()),
+                userId: ObjectId.createFromHexString(req.user._id.toString()),
+                comment: req.body.comment,
+                createdTimestamp: new Date()
+            }
+
+            const addedComment = await comments.insertOne(comment);
+
+            if (addedComment !== null && addedComment !== undefined) {
+                res.status(200).json({ message: "success", comment: addedComment });
+            }else {
+                res.status(400).json({ message: "could not add comment" });
+            }
+
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+
+});
+
+// Route to show comments for a list
+app.post('/showComments', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const userDb = client.db('users');
+            const db = client.db('lists');
+            const comments = db.collection("comments");
+            const users = userDb.collection("profiles");
+
+            // Retrieve all comments with listId and sort by createdTimestamp
+            // for each comment, retrieve the user's profile from users collection and append to the comment object
+            const commentsWithUserDetails = await comments.find({ listId: ObjectId.createFromHexString(req.body.listId.toString()) }).sort({ createdTimestamp: -1 }).toArray();
+            for (let comment of commentsWithUserDetails) {
+                const user = await users.findOne({ _id: comment.userId });
+                if (user) {
+                    comment.user = {
+                        _id: user._id,
+                        username: user.username,
+                        profilePicture: user.profilePicture
+                    };
+                } else {
+                    // remove comment from commentsWithUserDetails if user is not found
+                    commentsWithUserDetails.splice(commentsWithUserDetails.indexOf(comment), 1);
+                }
+            }
+
+            res.status(200).json({ message: "success", comments: commentsWithUserDetails });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+
+});
+
+// Route to add a comment to a list
+app.post('/deleteComment', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const lists = db.collection("lists");
+            const comments = db.collection("comments");
+
+            // Check if the comment belongs to the authenticated user
+            const comment = await comments.findOne({ _id: ObjectId.createFromHexString(req.body.commentId.toString()) });
+            if (!comment) {
+                res.status(400).json({ message: "comment does not exist" });
+                return;
+            }
+            if (comment.userId.toString() !== req.user._id.toString()) {
+                res.status(401).json({ message: 'comment does not belong to user' });
+                return;
+            }
+
+            await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $inc: { comments: -1} });
+            await comments.deleteOne({ _id: ObjectId.createFromHexString(req.body.commentId.toString()) });
+
+            res.status(200).json({ message: "success" });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to add a comment to a list
+app.post('/likeList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const likes = db.collection("likes");
+            const lists = db.collection("lists");
+
+            //check if user has already liked the list
+            const existingLike = await likes.findOne({ listId: ObjectId.createFromHexString(req.body.listId.toString()), userId: ObjectId.createFromHexString(req.user._id.toString()) });
+            if (existingLike !== null && existingLike !== undefined) {
+                res.json({ message: "user has already liked the list" });
+                return;
+            }
+
+            console.log("incrementing likes for list:", req.body.listId);
+            await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $inc: { likes: 1} });
+
+            const likeObject = {
+                listId: ObjectId.createFromHexString(req.body.listId.toString()),
+                userId: ObjectId.createFromHexString(req.user._id.toString()),
+                createdTimestamp: new Date()
+            }
+
+            const returnedLike = await likes.insertOne(likeObject);
+
+            likeObject._id = returnedLike.insertedId;
+
+            res.status(200).json({ message: "success", like: likeObject });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to add a comment to a list
+app.post('/unlikeList', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('lists');
+            const likes = db.collection("likes");
+            const lists = db.collection("lists");
+
+            //check if user has liked the list
+            const existingLike = await likes.findOne({ listId: ObjectId.createFromHexString(req.body.listId.toString()), userId: ObjectId.createFromHexString(req.user._id.toString()) });
+            if (existingLike == null || existingLike == undefined) {
+                res.json({ message: "user has not liked the list" });
+                return;
+            }
+
+            console.log("decrementing likes for list:", req.body.listId);
+            await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $inc: { likes: -1} });
+
+            await likes.deleteOne({ listId: ObjectId.createFromHexString(req.body.listId.toString()), userId: ObjectId.createFromHexString(req.user._id.toString()) });
+
+            res.status(200).json({ message: "success" });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
         res.status(500).json({ message: 'Server error', error });
     }
 });
