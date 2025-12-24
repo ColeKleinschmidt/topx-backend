@@ -43,7 +43,7 @@ const uri = process.env.MONGO_URI;
 
 // Use middlewares
 app.use(cors({
-    origin: 'http://192.168.86.186:5173', // Adjust this based on your frontend
+    origin: 'http://192.168.86.188:5173', // Adjust this based on your frontend
     credentials: true,
 }));
 app.use(bodyParser.json());
@@ -240,7 +240,8 @@ app.post('/createAccount', async (req, res) => {
             friends: [],
             ignoredUsers: [],
             blockedUsers: [],
-            profilePicture: "https://static.vecteezy.com/system/resources/previews/036/280/650/non_2x/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-illustration-vector.jpg"
+            profilePicture: "https://static.vecteezy.com/system/resources/previews/036/280/650/non_2x/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-illustration-vector.jpg",
+            darkTheme: false
         };
         console.log("inserting new user into database: ");
         console.log(newUser);
@@ -357,16 +358,32 @@ app.get('/getAllUsers', async (req, res) => {
     }
 });
 
-// Route to get users minus the current user
+// Route to get users minus the current user (supports pagination via query params)
 app.get('/getUsers', async (req, res) => {
     try {
         if (req.isAuthenticated()) {
             await client.connect();
             const db = client.db('users');
             const users = db.collection('profiles');
-            let allUsers = await users.find().toArray();
-            allUsers = allUsers.filter(x => x._id.toString() !== req.user._id.toString() && req.user.friends.filter(y => y.toString() == x._id.toString() ).length === 0);
-            res.json({ message: "success", users: allUsers });
+
+            // Parse pagination params from query string
+            const page = Math.max(1, parseInt(req.query.page) || 1);
+            const limit = Math.max(1, parseInt(req.query.limit) || 12);
+            const skip = (page - 1) * limit;
+
+            // Build exclusion list: current user + friends
+            const excludeIds = [req.user._id, ...(req.user.friends || [])];
+
+            // Count total (excluding current user and friends)
+            const total = await users.countDocuments({ _id: { $nin: excludeIds } });
+
+            // Fetch paginated users from MongoDB
+            const pagedUsers = await users.find({ _id: { $nin: excludeIds } }).skip(skip).limit(limit).toArray();
+
+            res.json({
+                message: "success",
+                users: pagedUsers,
+            });
         } else {
             res.status(401).json({ message: 'Unauthorized' });
         }
@@ -1105,6 +1122,8 @@ app.post('/getListsByUserId', async (req, res) =>
                         title: 1,
                         createdTimestamp: 1,
                         backgroundColor: 1,
+                        likes: 1,
+                        comments: 1,
                         "items.title": 1,
                         "items.image": 1
                     }
@@ -1520,6 +1539,28 @@ app.post('/unlikeList', async (req, res) => {
             await lists.updateOne({ _id: ObjectId.createFromHexString(req.body.listId.toString()) }, { $inc: { likes: -1} });
 
             await likes.deleteOne({ listId: ObjectId.createFromHexString(req.body.listId.toString()), userId: ObjectId.createFromHexString(req.user._id.toString()) });
+
+            res.status(200).json({ message: "success" });
+        } else {
+            res.status(401).json({ message: 'Unauthorized' });
+        }
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
+// Route to toggle the user's theme selectiont to the opposite
+app.get('/toggleTheme', async (req, res) => {
+    try {
+        if (req.isAuthenticated()) {
+            // Connect to collection
+            await client.connect();
+            const db = client.db('users');
+            const profiles = db.collection('profiles');
+
+            // Toggle the theme preference
+            await profiles.updateOne({ _id: req.user._id }, { $set: { darkTheme: !req.user.darkTheme } });
 
             res.status(200).json({ message: "success" });
         } else {
