@@ -1572,6 +1572,39 @@ app.get('/toggleTheme', async (req, res) => {
     }
 });
 
+// Route to delete the user's account
+app.get('/deleteAccount', async (req, res) => {
+    try {
+        // Connect to collection
+        await client.connect();
+        const db = client.db('users');
+        const listsdb = client.db("lists");
+        const profiles = db.collection('profiles');
+        const notifications = db.collection('notifications');
+        const likes = listsdb.collection('likes');
+        const comments = listsdb.collection('comments');
+        const lists = listsdb.collection('lists');
+
+        // Delete user's lists, likes, comments, and notifications
+        await lists.deleteMany({ "user._id": req.user._id });
+        await likes.deleteMany({ "userId": req.user._id });
+        await comments.deleteMany({ "userId": req.user._id });
+        await notifications.deleteMany({ "sender": req.user._id, "receiver": req.user._id });
+        await profiles.updateMany({}, { $pull: { friends: req.user._id } });
+
+        // Delete user's profile
+        await profiles.deleteOne({ _id: req.user._id });
+
+        req.logout(err => {
+            if (err) return res.status(500).json({ message: 'Logout failed', error: err });
+            res.json({ message: 'Logged out successfully' });
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
 const FRONTEND_PATH = path.join(__dirname, `${process.env.FRONTEND_FILE_PATH}`);
 
 console.log('Serving frontend from:', FRONTEND_PATH);
