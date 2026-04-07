@@ -42,8 +42,21 @@ const app = express();
 const uri = process.env.MONGO_URI;
 
 // Use middlewares
+const allowedOrigins = [
+    'http://192.168.86.188:5173',
+    'https://topx-frontend.vercel.app'
+];
+
 app.use(cors({
-    origin: 'http://192.168.86.188:5173', // Adjust this based on your frontend
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
 }));
 app.use(bodyParser.json());
