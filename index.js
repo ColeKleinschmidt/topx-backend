@@ -44,7 +44,8 @@ const uri = process.env.MONGO_URI;
 // Use middlewares
 const allowedOrigins = [
     'http://192.168.86.188:5173',
-    'https://topx-frontend.vercel.app'
+    'https://topx-frontend.vercel.app',
+    'http://localhost:5173',
 ];
 
 app.use(cors({
@@ -67,10 +68,16 @@ app.use(session({
     secret: process.env.SESSION_SECRET || 'supersecret',
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({ mongoUrl: uri }),
+    store: MongoStore.create({ 
+        mongoUrl: uri,
+        touchAfter: 24 * 3600 // lazy session update
+    }),
+    proxy: true, // Trust the reverse proxy
     cookie: { 
         secure: process.env.NODE_ENV === 'production', // Only secure in production
         sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax", // None for cross-site, Lax for local
+        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+        httpOnly: true
     }
 }));
 app.use(passport.initialize());
@@ -287,10 +294,23 @@ app.post('/login', (req, res, next) => {
         }
         req.logIn(user, (err) => {
             if (err) return res.status(500).json({ message: 'Login failed', error: err });
-            const { _id, email, username, iconUrl } = user;
-            return res.json({
-                message: 'success',
-                user: { _id, email, username, iconUrl }
+            
+            // Explicitly save the session to ensure it persists (critical for mobile browsers)
+            req.session.save((saveErr) => {
+                if (saveErr) {
+                    console.error('Session save error:', saveErr);
+                    return res.status(500).json({ message: 'Session save failed', error: saveErr });
+                }
+                
+                console.log('✅ Session saved successfully for user:', user.email);
+                console.log('Session ID:', req.sessionID);
+                console.log('Session data:', req.session);
+                
+                const { _id, email, username, iconUrl, profilePicture } = user;
+                return res.json({
+                    message: 'success',
+                    user: { _id, email, username, iconUrl, profilePicture }
+                });
             });
         });
     })(req, res, next);
@@ -1174,10 +1194,17 @@ app.post('/getListsByUserId', async (req, res) =>
 // Route to check authentication status
 app.get('/authStatus', (req, res) => 
     {
-        console.log("Session during authStatus:", req.session);
+        console.log("🔍 AuthStatus Debug:");
+        console.log("  Session ID:", req.sessionID);
+        console.log("  Session:", req.session);
+        console.log("  Session user (passport):", req.session?.passport?.user);
+        console.log("  isAuthenticated():", req.isAuthenticated());
+        console.log("  Cookie:", req.headers.cookie);
+        
         if (req.isAuthenticated()) 
         {
             const user = req.user;
+            console.log("Authenticated user:", user.email);
             res.json({
                 authenticated: true,
                 user: {
@@ -1190,6 +1217,7 @@ app.get('/authStatus', (req, res) =>
         } 
         else 
         {
+            console.log("Not authenticated");
             res.json({ authenticated: false });
         }
     });
