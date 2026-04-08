@@ -58,16 +58,23 @@ app.use(cors({
             callback(new Error('Not allowed by CORS'));
         }
     },
-    credentials: true,
+    credentials: true, // Critical: enables Access-Control-Allow-Credentials
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+    exposedHeaders: ['Set-Cookie'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 app.use(bodyParser.json());
 
 app.set('trust proxy', 1);
 
 app.use(session({
+    name: 'topx.sid', // Explicit session cookie name
     secret: process.env.SESSION_SECRET || 'supersecret',
     resave: false,
     saveUninitialized: false,
+    rolling: true, // Reset cookie maxAge on every request
     store: MongoStore.create({ 
         mongoUrl: uri,
         touchAfter: 24 * 3600 // lazy session update
@@ -77,7 +84,9 @@ app.use(session({
         secure: process.env.NODE_ENV === 'production', // Only secure in production
         sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax", // None for cross-site, Lax for local
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-        httpOnly: true
+        httpOnly: true,
+        path: '/',
+        domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
     }
 }));
 app.use(passport.initialize());
