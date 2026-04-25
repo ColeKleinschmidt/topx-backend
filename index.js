@@ -85,8 +85,7 @@ app.use(session({
         sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax", // None for cross-site, Lax for local
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
         httpOnly: true,
-        path: '/',
-        domain: process.env.NODE_ENV === 'production' ? '.onrender.com' : undefined
+        path: '/'
     }
 }));
 app.use(passport.initialize());
