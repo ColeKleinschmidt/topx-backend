@@ -1129,22 +1129,28 @@ app.post('/getListsByUserId', async (req, res) =>
 {
     try 
     {
-        if (req.isAuthenticated()) 
+        let { userId, page = 1, limit = 10 } = req.body;
+
+        // Allow if authenticated via session OR if userId is provided in body
+        const isAuth = req.isAuthenticated();
+        if (!isAuth && !userId) 
         {
-            await client.connect();
-            const db = client.db('lists');
-            const likes = db.collection("likes"); // Likes collection
-            const listsCollection = db.collection("lists");
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
-            console.log("Received request with body:", req.body);
+        if (!userId) 
+        {
+            return res.status(400).json({ message: "Missing userId" });
+        }
 
-            let { userId, page = 1, limit = 10 } = req.body;
-            if (!userId) 
-            {
-                return res.status(400).json({ message: "Missing userId" });
-            }
+        await client.connect();
+        const db = client.db('lists');
+        const likes = db.collection("likes");
+        const listsCollection = db.collection("lists");
 
-            const skip = (page - 1) * limit;
+        console.log("Received request with body:", req.body);
+
+        const skip = (page - 1) * limit;
 
             // Convert userId to ObjectId
             let query = { "user._id": new ObjectId(userId) };
@@ -1175,22 +1181,15 @@ app.post('/getListsByUserId', async (req, res) =>
                 .toArray();
 
             for (let i = 0; i < userLists.length; i++) {
-                const hasUserLiked = await likes.findOne({ "listId": ObjectId.createFromHexString(userLists[i]._id.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) });
-                if (hasUserLiked) {
-                    userLists[i].userHasLiked = true;
-                } else {
-                    userLists[i].userHasLiked = false;
-                }
+                const likedByUser = req.isAuthenticated()
+                    ? await likes.findOne({ "listId": ObjectId.createFromHexString(userLists[i]._id.toString()), "userId": ObjectId.createFromHexString(req.user._id.toString()) })
+                    : null;
+                userLists[i].userHasLiked = !!likedByUser;
             }
 
             console.log(`Found ${userLists.length} lists for userId ${userId}`);
 
             res.status(200).json({ message: "success", lists: userLists });
-        } 
-        else 
-        {
-            res.status(401).json({ message: 'Unauthorized' });
-        }
     } 
     catch (error) 
     {
