@@ -711,6 +711,37 @@ const searchNewItem = async (title) => {
     return newItem;
 }
 
+// Refresh a broken image by re-searching Google and updating the item in the DB
+app.post('/refreshItemImage', async (req, res) => {
+    try {
+        const { itemId, query } = req.body;
+        if (!itemId || !query) {
+            return res.status(400).json({ message: 'Missing itemId or query' });
+        }
+
+        const searchResult = await scrapeImages(query);
+        const newImageUrl = searchResult?.items?.[0]?.link;
+
+        if (!newImageUrl) {
+            return res.status(404).json({ message: 'No image found for query' });
+        }
+
+        await client.connect();
+        const db = client.db('lists');
+        const items = db.collection('items');
+
+        await items.updateOne(
+            { _id: ObjectId.createFromHexString(itemId) },
+            { $set: { image: newImageUrl } }
+        );
+
+        res.json({ message: 'success', image: newImageUrl });
+    } catch (error) {
+        console.error('Error refreshing item image:', error);
+        res.status(500).json({ message: 'Server error', error });
+    }
+});
+
 // Search for items to add to list given a search query
 app.post('/findItems', async (req, res) => {
     try {
