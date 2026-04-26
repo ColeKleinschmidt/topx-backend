@@ -729,10 +729,21 @@ app.post('/refreshItemImage', async (req, res) => {
         await client.connect();
         const db = client.db('lists');
         const items = db.collection('items');
+        const lists = db.collection('lists');
 
+        const itemObjectId = ObjectId.createFromHexString(itemId);
+
+        // Update in items collection
         await items.updateOne(
-            { _id: ObjectId.createFromHexString(itemId) },
+            { _id: itemObjectId },
             { $set: { image: newImageUrl } }
+        );
+
+        // Also update the image embedded in any lists that contain this item
+        await lists.updateMany(
+            { 'items._id': itemObjectId },
+            { $set: { 'items.$[elem].image': newImageUrl } },
+            { arrayFilters: [{ 'elem._id': itemObjectId }] }
         );
 
         res.json({ message: 'success', image: newImageUrl });
