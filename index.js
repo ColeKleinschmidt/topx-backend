@@ -81,8 +81,9 @@ app.use(session({
     }),
     proxy: true, // Trust the reverse proxy
     cookie: { 
-        secure: process.env.NODE_ENV === 'production', // Only secure in production
-        sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax", // None for cross-site, Lax for local
+        secure: true, // Always secure (HTTPS on Render)
+        sameSite: "none", // Required for cross-origin cookie (Vercel -> Render)
+
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
         httpOnly: true,
         path: '/'
