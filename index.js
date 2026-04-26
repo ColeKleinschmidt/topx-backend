@@ -714,9 +714,9 @@ const searchNewItem = async (title) => {
 // Refresh a broken image by re-searching Google and updating the item in the DB
 app.post('/refreshItemImage', async (req, res) => {
     try {
-        const { itemId, query } = req.body;
-        if (!itemId || !query) {
-            return res.status(400).json({ message: 'Missing itemId or query' });
+        const { itemId, query, oldImageUrl } = req.body;
+        if (!query) {
+            return res.status(400).json({ message: 'Missing query' });
         }
 
         const searchResult = await scrapeImages(query);
@@ -731,20 +731,28 @@ app.post('/refreshItemImage', async (req, res) => {
         const items = db.collection('items');
         const lists = db.collection('lists');
 
-        const itemObjectId = ObjectId.createFromHexString(itemId);
+        // Update by _id in items collection if available
+        if (itemId) {
+            try {
+                const itemObjectId = ObjectId.createFromHexString(itemId);
+                await items.updateOne({ _id: itemObjectId }, { $set: { image: newImageUrl } });
+                await lists.updateMany(
+                    { 'items._id': itemObjectId },
+                    { $set: { 'items.$[elem].image': newImageUrl } },
+                    { arrayFilters: [{ 'elem._id': itemObjectId }] }
+                );
+            } catch (e) { /* invalid id, fall through */ }
+        }
 
-        // Update in items collection
-        await items.updateOne(
-            { _id: itemObjectId },
-            { $set: { image: newImageUrl } }
-        );
-
-        // Also update the image embedded in any lists that contain this item
-        await lists.updateMany(
-            { 'items._id': itemObjectId },
-            { $set: { 'items.$[elem].image': newImageUrl } },
-            { arrayFilters: [{ 'elem._id': itemObjectId }] }
-        );
+        // Also update by old image URL in case item has no _id (embedded without id)
+        if (oldImageUrl) {
+            await items.updateMany({ image: oldImageUrl }, { $set: { image: newImageUrl } });
+            await lists.updateMany(
+                { 'items.image': oldImageUrl },
+                { $set: { 'items.$[elem].image': newImageUrl } },
+                { arrayFilters: [{ 'elem.image': oldImageUrl }] }
+            );
+        }
 
         res.json({ message: 'success', image: newImageUrl });
     } catch (error) {
